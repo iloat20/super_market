@@ -4,9 +4,11 @@
 # 为什么只跑这两步、不跑打包：verify_apk 需要签名密钥与完整 Android SDK，
 # 且打包产物只在装机前有意义；CI 的价值是把「代码级门禁」挡在 push/PR 上。
 #
-# golden 说明：goldens 由 flutter_tester 生成，字体统一落在 Ahem，
-# 跨 OS 渲染是确定性的——Windows 本地生成、Linux CI 比对应当逐字节一致；
-# 若 CI 端 golden 失败而本地绿，先怀疑 runner 版本而非图像。
+# 为什么必须是 windows-latest（首轮 CI 实测教训，linux runner 会红）：
+# golden harness 要加载**真中文字体**（中文没法用 Ahem 画），搜索顺序是
+# C:/Windows/Fonts/simhei.ttf → msyh.ttc → …。goldens 是在 Windows + SimHei
+# 下生成的，Linux 上装 wqy-zenhei 虽能让 setUpAll 过，但字形完全不同，
+# 像素比对必红。Windows runner 自带 SimHei / 雅黑，与生成环境逐字节一致。
 name: ci
 
 on:
@@ -20,8 +22,8 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
