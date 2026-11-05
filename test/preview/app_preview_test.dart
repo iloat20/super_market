@@ -33,7 +33,20 @@
 /// ```bash
 /// flutter test test/preview/app_preview_test.dart --update-goldens
 /// ```
+///
+/// ## 为什么打 preview 标签（CI 排除）
+///
+/// 2026-11-05 首轮 CI 实测：Windows runner 上 332 条逻辑测试全绿，
+/// 但 5 张 golden 全部像素不匹配（1.05% 量级的散点差异）——runner 的
+/// SimHei 字体文件版本/光栅化与本机存在微差，字节级比对必然翻车。
+/// 像素基线是**与生成机器绑定**的视觉门禁，归本地；CI 用
+/// `flutter test --exclude-tags preview` 跳过它、覆盖其余全部逻辑测试。
+/// 要做到跨机确定性 golden，需要仓库内置 OFL 中文字体并重生成基线
+///（会改变基线像素，属视觉决策，未拍板前不做）。
 library;
+
+@Tags(<String>['preview'])
+import 'package:flutter_test/flutter_test.dart';
 
 import 'dart:io';
 import 'dart:math' as math;

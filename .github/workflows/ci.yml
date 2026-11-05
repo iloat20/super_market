@@ -38,4 +38,7 @@ jobs:
       - run: flutter --version
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
+      # golden（test/preview，@Tags preview）排除在 CI 外：像素基线与生成
+      # 机器绑定（runner 的 SimHei 版本与本机有 1.05% 级微差，字节比对必红，
+      # 见 app_preview_test.dart 头注）。本地 flutter test 仍然全量跑。
+      - run: flutter test --exclude-tags preview
