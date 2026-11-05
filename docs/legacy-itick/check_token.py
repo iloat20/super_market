@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """不装 APK 也能验证 iTick Token 是否可用。
 
-用法：
+⚠️ 已退役（2026-11-05，review-2026-11-05 E-03）：iTick 通道已于 2026-11-04
+从代码中整体删除（树摇证据见 tool/verify_apk.py 的 iTick 断言），当前数据源是
+新浪 / 腾讯公开接口，**没有 Token 概念**。app_config.dart 里已无
+`static const String token`，本脚本现在必然以「配置文件里没找到 token」退出；
+它引用的 lib/services/quote_parser.dart 也已不存在。
+
+原样保留在本目录作为「切回 iTick」时的恢复手册：域名探测（免费/付费档）、
+Token 探活、逐只代码校验、字段名核对都还有效。恢复步骤：
+  1. 把 token 常量加回 lib/config/app_config.dart（或命令行直接传参）；
+  2. `python docs/legacy-itick/check_token.py`；
+  3. 同步更新 tool/verify_apk.py 的 iTick 断言与 README。
+
+用法（历史原样）：
     python tool/check_token.py                  # 读 lib/config/app_config.dart 里的 token
     python tool/check_token.py <YOUR_TOKEN>     # 或者命令行直接给
 

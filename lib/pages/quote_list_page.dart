@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 // 只剩列表玻璃组（GlassBackdropGroup）还在用：页头那块玻璃已经拆掉
@@ -117,7 +118,9 @@ class _QuoteListPageState extends State<QuoteListPage>
     if (!mounted) {
       return;
     }
-    if (!_sameStocks(saved, _stocks)) {
+    // M-01（review-2026-11-05）：_sameStocks 收敛到 foundation.listEquals，
+    // 与 PollingQuoteFeed.updateStocks 用同一份实现，避免两处漂移。
+    if (!listEquals(saved, _stocks)) {
       setState(() {
         _stocks = saved;
         _syncNotifiers();
@@ -143,18 +146,6 @@ class _QuoteListPageState extends State<QuoteListPage>
   }
 
   // ==================== 订阅列表 ====================
-
-  static bool _sameStocks(List<StockConfig> a, List<StockConfig> b) {
-    if (a.length != b.length) {
-      return false;
-    }
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
 
   /// 让 notifier 集合与 [_stocks] 对齐：只补新的、只删旧的，**已存在的一律保留**。
   ///
@@ -229,7 +220,7 @@ class _QuoteListPageState extends State<QuoteListPage>
       // 公开源配额：实测 30 只一次批量请求 OK
       quota: AppConfig.publicSourceMaxStocks,
     );
-    if (!mounted || next == null || _sameStocks(next, _stocks)) {
+    if (!mounted || next == null || listEquals(next, _stocks)) {
       return;
     }
 

@@ -111,18 +111,6 @@ class PollingQuoteFeed implements QuoteFeed {
   /// 当前的轮询间隔（退避后会变长）
   Duration get currentInterval => _delay();
 
-  static bool _sameStocks(List<StockConfig> a, List<StockConfig> b) {
-    if (a.length != b.length) {
-      return false;
-    }
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   // ==================== 对外方法 ====================
 
   @override
@@ -185,7 +173,11 @@ class PollingQuoteFeed implements QuoteFeed {
 
   @override
   void updateStocks(List<StockConfig> next) {
-    if (_sameStocks(next, _stocks)) {
+    // M-01（review-2026-11-05）：原来这里有一个手写的 _sameStocks，
+    // 与 quote_list_page 的那份逐字节相同——重复实现只会互相漂移，
+    // 统一收敛到 foundation.listEquals（元素按 StockConfig == 逐一比较，
+    // 语义与原实现完全一致）。
+    if (listEquals(next, _stocks)) {
       return;
     }
     final Set<String> keep = next.map((StockConfig s) => s.key).toSet();

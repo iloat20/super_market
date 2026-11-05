@@ -136,7 +136,12 @@ class KlineLoader {
           ),
         );
         return KlineResult<T>(items: items, sourceId: source.id);
-      } on Exception catch (e) {
+      } on Object catch (e) {
+        // R-02（review-2026-11-05）：必须连 Error 一起拦。上游接口形状突变时
+        // 解析器/请求层可能抛 Error（RangeError、StateError 等），`on Exception`
+        // 拦不住，异常会穿透 loadDaily 把详情页挂在「加载走势…」。
+        // 与 symbol_directory（R-04）、PollingQuoteFeed._poll 同一条纪律：
+        // 走势是装饰性数据，任何失败都只能变成 failed 结果。
         lastError = '${source.displayName} 请求异常';
         AppLog.w('走势 $key：${source.id} 请求异常（$e），换下一个源');
       }

@@ -76,6 +76,7 @@ Future<GlobalKey<NavigatorState>> _openSheet(
   WidgetTester tester,
   SymbolDirectory directory, {
   int quota = 3,
+  List<StockConfig>? stocks,
 }) async {
   tester.view.physicalSize = const Size(390 * 3, 844 * 3);
   tester.view.devicePixelRatio = 3;
@@ -91,7 +92,7 @@ Future<GlobalKey<NavigatorState>> _openSheet(
   unawaited(
     showWatchlistSheet(
       navKey.currentContext!,
-      stocks: _initial,
+      stocks: stocks ?? _initial,
       directory: directory,
       quota: quota,
     ),
@@ -304,6 +305,38 @@ void main() {
       findsWidgets,
       reason: '目录变了，按 query 的缓存必须失效，否则搜索结果永远是旧的',
     );
+  });
+
+  // C-05（review-2026-11-05）：_add 曾用 StockConfig ==（含 name）判重。
+  // 名称会漂移（公司更名、搜索源与目录源不同步）：搜索返回的简称与存档
+  // 不一致时，同一 code@region 会被当成「未订阅」再加一次，列表出现
+  // 两张同价卡（同一个 notifier，重启后 decode 去重才自愈）。
+  // 身份是 code@region，判重必须按 key。
+  testWidgets('判重按身份键：搜索返回的名称与存档不一致也拦下', (WidgetTester tester) async {
+    const StockConfig archived = StockConfig(
+      code: '000651',
+      name: '格力电器',
+      region: 'SZ',
+    );
+    final SuggestHttp http = SuggestHttp(
+      bodyFor: (String q) => _es('000651', '格力电器（新）', '2'),
+    );
+    await _openSheet(tester, _directory(http), stocks: <StockConfig>[archived]);
+
+    await tester.enterText(find.byType(TextField), '格力');
+    await _settleSearch(tester);
+
+    // 结果区展示的是搜索返回的新名称
+    expect(find.text('格力电器（新）'), findsOneWidget);
+    await tester.tap(find.text('格力电器（新）'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('已经在订阅列表里了'),
+      findsOneWidget,
+      reason: '同一 code@region 必须判重，否则出现两张同价卡',
+    );
+    expect(find.text('当前订阅（1/3）'), findsOneWidget);
   });
 }
 

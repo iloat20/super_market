@@ -222,7 +222,11 @@ class _WatchlistSheetState extends State<_WatchlistSheet> {
   bool get _full => _stocks.length >= widget.quota;
 
   void _add(StockConfig stock) {
-    if (_stocks.contains(stock)) {
+    // 判重必须按身份键（code@region），不能用 StockConfig ==：名称会漂移
+    //（公司更名、搜索源与目录源不同步），按 name 判重会把同一只票加成
+    // 两张同价卡（C-05，review-2026-11-05）。`==` 里 name 参与是有意保留的
+    // （_sameStocks 要能感知名称更新），所以这里单独比 key。
+    if (_stocks.any((StockConfig s) => s.key == stock.key)) {
       setState(() => _hint = '${stock.name} 已经在订阅列表里了');
       return;
     }

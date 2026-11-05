@@ -918,9 +918,18 @@ class _KlinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_KlinePainter old) {
+    // U-01（review-2026-11-05）：比较集必须是「全部影响绘制的字段」。
+    // axisStyle/hk/us 曾漏比——刻度样式（字体族等）或区域口径变化时返回
+    // false，图会停留在旧样式直到下一次数据更新。
+    // 注意：图表刻意是**缩放不变**的（axisStyle 用 copyWith 把 fontSize
+    // 钉在 9.5），系统字体缩放不构成「axisStyle 变化」，不应触发重绘；
+    // 该语义由 kline_chart_test 的「字体缩放变化 → 刻意不重绘」用例钉住。
     return old.mode != mode ||
         !identical(old.bars, bars) ||
         !identical(old.points, points) ||
-        old.prevClose != prevClose;
+        old.prevClose != prevClose ||
+        old.axisStyle != axisStyle ||
+        old.hk != hk ||
+        old.us != us;
   }
 }

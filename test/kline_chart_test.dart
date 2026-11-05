@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:super_market/models/kline.dart';
@@ -228,5 +230,79 @@ void main() {
       expect(tradingMinute(at(9, 0), us: true), 0);
       expect(tradingMinute(at(20, 0), us: true), 390);
     });
+  });
+
+  // U-01（review-2026-11-05）：shouldRepaint 的比较集必须是「全部影响绘制的
+  // 字段」。axisStyle / hk / us 漏比时，任何样式口径变化（换字体、换区域）
+  // 都不会触发重绘，刻度文字停留在旧样式。
+  //
+  // ⚠️ 审查时曾误判「系统字体缩放会让刻度停在旧字号」——实际不成立：
+  // axisStyle 是 `DefaultTextStyle.style.copyWith(fontSize: 9.5, …)`，
+  // fontSize 被 copyWith 钉死，图表本身缩放不变。第二段用例把这个语义
+  // 钉住：若将来有人解开 fontSize 的钉子而忘了更新 shouldRepaint，它会红。
+  CustomPainter painterOf(WidgetTester tester) => tester
+      .renderObject<RenderCustomPaint>(
+        find.descendant(
+          of: find.byType(KlineChart),
+          matching: find.byWidgetPredicate((Widget w) => w is CustomPaint),
+        ),
+      )
+      .painter!;
+
+  // ⚠️ bars 必须只建一次、两次 pump 共用同一个 List 实例：
+  // shouldRepaint 对 bars 用 identical 判断，每次新建会让 identical 恒为
+  // false，两条用例都会被「数据变了」蒙混过关，测不到样式比较本身。
+  final List<Kline> sharedBars = <Kline>[
+    _bar(DateTime(2026, 11, 3), 1451.01),
+    _bar(DateTime(2026, 11, 4), 1453.88),
+  ];
+
+  Widget host(WidgetTester tester, {TextStyle? base, double scale = 1.0}) {
+    tester.view.physicalSize = const Size(390 * 3, 182 * 3);
+    tester.view.devicePixelRatio = 3;
+    Widget chart = KlineChart(mode: ChartMode.daily, bars: sharedBars);
+    if (base != null) {
+      chart = DefaultTextStyle(style: base, child: chart);
+    }
+    return MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+        child: Scaffold(body: Center(child: chart)),
+      ),
+    );
+  }
+
+  testWidgets('axisStyle 真变化（fontFamily）→ 必须要求重绘', (WidgetTester tester) async {
+    await tester.pumpWidget(host(tester, base: const TextStyle(fontSize: 14, fontFamily: 'Roboto')));
+    final CustomPainter first = painterOf(tester);
+
+    // 同一份 bars，只换了字体族——axisStyle 里的 fontFamily 会跟着变
+    await tester.pumpWidget(
+      host(tester, base: const TextStyle(fontSize: 14, fontFamily: 'Courier')),
+    );
+    final CustomPainter second = painterOf(tester);
+
+    expect(
+      second.shouldRepaint(first),
+      isTrue,
+      reason: 'axisStyle 变了还返回 false，刻度会停留在旧字体',
+    );
+  });
+
+  testWidgets('字体缩放变化 → 刻意不重绘（fontSize 被 copyWith 钉死，图是缩放不变的）', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(host(tester, scale: 1.0));
+    final CustomPainter first = painterOf(tester);
+
+    await tester.pumpWidget(host(tester, scale: 2.0));
+    final CustomPainter second = painterOf(tester);
+
+    expect(
+      second.shouldRepaint(first),
+      isFalse,
+      reason: 'fontSize 钉在 9.5，缩放不改变任何绘制输入；'
+          '若此断言变红，说明钉子被解开而 shouldRepaint 没跟上',
+    );
   });
 }

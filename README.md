@@ -1,16 +1,16 @@
 # A 股实时行情（个人自用 MVP）
 
-## 当前状态（2026-11-04）
+## 当前状态（2026-11-05）
 
 > 本文是**开发日志**：二·X 各章按时间记录迭代，包含大量已移除的历史形态。
 > 「当前怎么跑 / 文件在哪 / 门禁是多少」一律以本节和源码为准。
 
 | 项 | 当前值 |
 | --- | --- |
-| 项目 / 包名 | `super_market` / `com.example.super_market`（`android/app/build.gradle.kts:10,28`） |
+| 项目 / 包名 | `super_market` / `supermarket.app`（`android/app/build.gradle.kts:10,28`；`com.example.super_market` 时代已结束，见 十「包信息」） |
 | 技术栈 | Flutter 3.47.9 / Dart 3.13.7，仅 Android，compileSdk / targetSdk 37 |
 | 行情链路 | 新浪主 + 腾讯备，3s HTTP 轮询；**零凭证、无 WebSocket、无 iTick** |
-| 门禁 | `flutter analyze` 0 issues；`flutter test` **290 通过 + 0 skip**（含 5 张 golden 视觉基线、3 条像素级对比度断言、4 条 3.0x 用例、18 条报价新鲜度用例） |
+| 门禁 | `flutter analyze` 0 issues；`flutter test` **333 通过 + 0 skip**（含 5 张 golden 视觉基线、3 条像素级对比度断言、4 条 3.0x 用例、18 条报价新鲜度用例） |
 | 日志 tag | 原生 `super_market`（`MainActivity.kt`）；Dart `debugPrint` 走 `flutter` |
 | 帧数据 | `tool/measure_frames.sh`（profile 包 + `PERF_LOG` → `FrameTiming`）；`dumpsys gfxinfo` 对 Flutter 自绘恒为 0 帧 |
 
@@ -44,7 +44,7 @@ Token 提示条、`n/3` 配额卡、页脚说明胶囊、下拉刷新与右上�
 - 二 的目录树、二·六 功能清单、九 的验证表是早期快照，见各节开头的校正说明。
 
 Android 单平台、只做「前台盯盘」的极简行情 App：**新浪财经为主、腾讯财经为备**，3 秒一轮
-HTTP 轮询、`Referer` 换 GBK 明文；3 只股票（可在 App 内改）；每只股票一个
+HTTP 轮询、`Referer` 换 GBK 明文；默认 4 只股票（A 股 3 + 港股 1，可在 App 内改，上限 30）；每只股票一个
 `ValueNotifier<Quote>` 做局部刷新。没有后台保活、没有前台服务、没有状态管理库、**不需要 API Key**。
 
 点开任意一只，除了八项指标，还有一块自绘的分时 / 日 K 走势图（无第三方图表库）。
@@ -2491,7 +2491,7 @@ flutter build apk --release --target-platform android-arm64 \
 | 项 | 值 | 证据 |
 | --- | --- | --- |
 | package / namespace | `supermarket.app`（两者一致；2026-11-05 定案） | `build.gradle.kts:13,42` |
-| versionName / versionCode | `1.0.1` / `29` | `pubspec.yaml:4`（`version: 1.0.1+29`；2026-11-05 港股时段角标 + 详情页改版后首次升版） |
+| versionName / versionCode | `1.0.7` / `35` | `pubspec.yaml:4`（`version: 1.0.7+35`；2026-11-05 美股支持版。**此表须随每次升版更新**——上次停在 1.0.1+29，正是 E-02 说的漂移） |
 | compileSdk / targetSdk | `37` / `37`（Android 17） | `build.gradle.kts:16,32` |
 | minSdk | 跟随 `flutter.minSdkVersion` | `build.gradle.kts:31` |
 | 权限 | `android.permission.INTERNET`（仅此一项） | `AndroidManifest.xml:3` |

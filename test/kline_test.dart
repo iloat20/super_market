@@ -293,6 +293,41 @@ void main() {
       // 新浪的分时和日线是同一个 host（靠 query 区分），所以是 2 次
       expect(calls['quotes.sina.cn'], 2);
     });
+
+    // R-02（review-2026-11-05）：symbol_directory 的 R-04 教训——
+    // 「边界层必须连 Error 一起拦」没有推广到 K 线链路。上游形状突变时
+    // 解析器/请求层可能抛出 Error（RangeError / StateError 等），
+    // `on Exception` 拦不住，异常会穿透 loadDaily 把详情页挂在
+    // 「加载走势…」。走势是装饰性数据，任何失败都只能变成 failed 结果。
+    test('请求层抛 Error → 换下一个源，不穿透', () async {
+      final KlineLoader loader = KlineLoader(
+        chain: KlineSources2.both,
+        httpGet: (Uri uri, Map<String, String> headers) async {
+          final String host = uri.host;
+          calls[host] = (calls[host] ?? 0) + 1;
+          if (host == 'quotes.sina.cn') {
+            // Error 不是 Exception：修复前这里会直接把 loadDaily 炸穿
+            throw StateError('模拟请求层 Error');
+          }
+          return HttpRawResponse(statusCode: 200, body: _b(_tencentDaily));
+        },
+      );
+      final KlineResult<Kline> r = await loader.loadDaily(kMaotai);
+      expect(r.sourceId, 'tencent');
+      expect(r.items.length, 2);
+      expect(calls['web.ifzq.gtimg.cn'], 1, reason: 'Error 也要走主备切换');
+    });
+
+    test('两个源都抛 Error → 带错误信息返回 failed，不抛异常', () async {
+      final KlineLoader loader = KlineLoader(
+        chain: KlineSources2.both,
+        httpGet: (Uri uri, Map<String, String> headers) async =>
+            throw StateError('模拟两个源都炸'),
+      );
+      final KlineResult<Kline> r = await loader.loadDaily(kMaotai);
+      expect(r.items, isEmpty);
+      expect(r.hasError, isTrue);
+    });
   });
 
   /// 数据层保留 `count` 能力（UI 已不提供翻页入口）：唯一的旋钮就是 count。

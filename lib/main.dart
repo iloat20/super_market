@@ -37,7 +37,15 @@ Future<void> main() async {
 
   // 液态玻璃（liquid_glass_widgets）：启动时把 shader 预热进显存，
   // 避免第一帧玻璃闪白。非阻塞 IO，不拖慢启动。
-  await LiquidGlassWidgets.initialize();
+  //
+  // R-01（review-2026-11-05）：初始化必须兜底——第三方库若在预热时抛错
+  // （着色器编译失败、设备不支持等），裸 await 会让 main 中断，App 永远
+  // 白屏。最多退化为「无预热」，绝不能挡住 runApp。
+  try {
+    await LiquidGlassWidgets.initialize();
+  } on Object catch (e, st) {
+    AppLog.e('玻璃预热失败，按无预热继续: $e\n$st');
+  }
 
   // 组合根（A11 最小版）：数据层对象只在这里创建一次并显式下发。
   // 页面仍保留 ?? 兜底，测试直接 new QuoteListPage 不需要全套依赖。
