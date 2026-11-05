@@ -1,0 +1,15 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # 未使用的 import / 变量按 error 处理，保证 flutter analyze 干净
+    unused_import: error
+    unused_local_variable: error
+    unused_field: error
+  exclude:
+    - build/**
+    - android/**
+
+linter:
+  rules:
+    - avoid_print

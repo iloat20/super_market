@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（Android 8.0+）：白底 + 海蓝虎鲸，负空间语言
+  （眼斑/腹月牙/嘴线镂空透白）——对齐用户提供的参考 logo
+  （白底 + 蓝鲸 + 白色负空间），2026-11-05 拍板"背景色用白色"。
+
+  背景 = 纯白（系统色 @android:color/white），镂空处透出的就是这片白；
+  不再需要渐变 drawable。
+
+  前景是位图（tool/icongen/IconGen.java 渲染，drawable-nodpi/ic_launcher_foreground.png）：
+  鲸鱼剪影 + DstOut 镂空一次成型，比矢量 path 拼多层填充可控；
+  108dp 画布 432px 位图在所有密度下都够锐。
+
+  monochrome 复用前景（Android 13+ 主题图标）：系统只取 alpha 当遮罩再
+  上色，鲸鱼剪影（含镂空洞）正好是一个完整轮廓。
+
+  低版本（Android 7.x，minSdk 24）不认这个文件，回落到
+  `mipmap-*/ic_launcher.png`（48/72/96/144/192 五档，同一生成器的
+  legacy 模式：白色圆底 + 同一套负空间白墨）。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@android:color/white" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

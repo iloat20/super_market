@@ -1,0 +1,214 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:super_market/config/app_config.dart';
+import 'package:super_market/models/quote.dart';
+import 'package:super_market/services/kline_loader.dart';
+import 'package:super_market/services/rest_client.dart';
+import 'package:super_market/widgets/kline_chart.dart';
+import 'package:super_market/widgets/quote_detail_sheet.dart';
+
+/// 详情弹层里的走势图：默认打开「分时」、能切到「日 K」、拉不到数据时给一行
+/// 可重试的提示，而且**不能因此弄坏八项指标**。
+
+const StockConfig kMaotai = StockConfig(
+  code: '600519',
+  name: '贵州茅台',
+  region: 'SH',
+);
+
+const String _intraday = '''
+{"result":{"status":{"code":0},"data":[
+ {"day":"2026-11-03 09:30:00","open":"1450","high":"1450","low":"1450","close":"1450","volume":"165000","amount":"239250000"},
+ {"day":"2026-11-03 09:31:00","open":"1450","high":"1451","low":"1436","close":"1436","volume":"162000","amount":"233109222"},
+ {"day":"2026-11-03 10:44:00","open":"1440","high":"1450","low":"1439","close":"1446.30","volume":"120000","amount":"173000000"}]}}''';
+
+const String _daily = '''
+{"result":{"status":{"code":0},"data":[
+ {"day":"2026-10-30","open":"1363.000","high":"1393.370","low":"1352.980","close":"1392.050","volume":"5992729"},
+ {"day":"2026-11-02","open":"1410.000","high":"1447.000","low":"1395.020","close":"1439.100","volume":"8269122"}]}}''';
+
+Quote _quote({double price = 1451.01}) => Quote(
+      code: '600519',
+      region: 'SH',
+      price: price,
+      change: price - 1439.1,
+      changePercent: (price - 1439.1) / 1439.1 * 100,
+      previousClose: 1439.1,
+      open: 1450,
+      high: 1458,
+      low: 1435,
+      volume: 2532700,
+      turnover: 3658010435,
+      timestamp: DateTime(2026, 11, 3, 10, 45),
+    );
+
+KlineLoader _loader({
+  required bool intradayOk,
+  required bool dailyOk,
+}) {
+  return KlineLoader(
+    httpGet: (Uri uri, Map<String, String> headers) async {
+      final bool isDaily = uri.queryParameters['scale'] == '240';
+      final bool ok = isDaily ? dailyOk : intradayOk;
+      if (!ok) {
+        return const HttpRawResponse(statusCode: 502, body: <int>[]);
+      }
+      return HttpRawResponse(
+        statusCode: 200,
+        body: utf8.encode(isDaily ? _daily : _intraday),
+      );
+    },
+  );
+}
+
+Future<void> _open(
+  WidgetTester tester, {
+  required KlineLoader loader,
+  Quote? quote,
+}) async {  final ValueNotifier<Quote> notifier =
+      ValueNotifier<Quote>(quote ?? _quote());
+  addTearDown(notifier.dispose);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Builder(
+        builder: (BuildContext context) => Scaffold(
+          body: Center(
+            child: ElevatedButton(
+              onPressed: () => showQuoteDetailSheet(
+                context,
+                stock: kMaotai,
+                quote: notifier,
+                loader: loader,
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('默认打开「分时」，两个 tab 都在，图上标了走势源', (WidgetTester tester) async {
+    await _open(tester, loader: _loader(intradayOk: true, dailyOk: true));
+
+    expect(find.text('分时'), findsOneWidget);
+    expect(find.text('日K'), findsOneWidget);
+    expect(find.byType(KlineChart), findsOneWidget);
+
+    final KlineChart chart = tester.widget<KlineChart>(find.byType(KlineChart));
+    expect(chart.mode, ChartMode.intraday);
+    expect(chart.points.length, 3);
+    expect(chart.prevClose, 1439.1);
+    // 最后一个点被实时价覆盖（分时数据到 10:44，报价是 10:45 的 1451.01）
+    expect(chart.points.last.price, 1451.01);
+
+    // 走势源单独标注：主备切换是静默的，图换源了得能看见
+    expect(find.text('新浪'), findsOneWidget);
+  });
+
+  testWidgets('切到「日K」会换成蜡烛图，并把今天那根拼进序列', (WidgetTester tester) async {
+    await _open(tester, loader: _loader(intradayOk: true, dailyOk: true));
+
+    await tester.tap(find.text('日K'));
+    await tester.pumpAndSettle();
+
+    final KlineChart chart = tester.widget<KlineChart>(find.byType(KlineChart));
+    expect(chart.mode, ChartMode.daily);
+    // 接口给到 11-02，实时报价是 11-03 → 拼出第三根
+    expect(chart.bars.length, 3);
+    expect(chart.bars.last.time, DateTime(2026, 11, 3));
+    expect(chart.bars.last.close, 1451.01);
+    expect(chart.points, isEmpty);
+  });
+
+  testWidgets('拉不到走势 → 一行「点此重试」，八项指标照常显示',
+      (WidgetTester tester) async {
+    await _open(tester, loader: _loader(intradayOk: false, dailyOk: false));
+
+    expect(find.text('走势暂不可用 · 点此重试'), findsOneWidget);
+    expect(find.byType(KlineChart), findsNothing);
+
+    // 图挂了不能让指标跟着消失
+    expect(find.text('今开'), findsOneWidget);
+    expect(find.text('昨收'), findsOneWidget);
+    expect(find.text('成交额'), findsOneWidget);
+    expect(find.text('1451.01'), findsOneWidget);
+  });
+
+  testWidgets('重试会绕开缓存重新请求', (WidgetTester tester) async {
+    int calls = 0;
+    final KlineLoader loader = KlineLoader(
+      httpGet: (Uri uri, Map<String, String> headers) async {
+        calls++;
+        return const HttpRawResponse(statusCode: 502, body: <int>[]);
+      },
+    );
+    await _open(tester, loader: loader);
+    expect(calls, 2); // 新浪 + 腾讯各一次
+
+    await tester.tap(find.text('走势暂不可用 · 点此重试'));
+    await tester.pumpAndSettle();
+    expect(calls, 4); // 失败不写缓存，重试真的又打了一轮
+  });
+
+  group('分时 / 日K 图表区块等高', () {
+    testWidgets('切到日K 后指标区不位移，且不再出现「加载更早」「区间摘要」', (
+      WidgetTester tester,
+    ) async {
+      await _open(tester, loader: _loader(intradayOk: true, dailyOk: true));
+      final double intradayTop = tester.getRect(find.text('今开')).top;
+      // 摘要行已整体移除：两个 tab 图下都不再有任何说明文字
+      expect(find.textContaining('区间'), findsNothing);
+
+      await tester.tap(find.text('日K'));
+      await tester.pumpAndSettle();
+      final double dailyTop = tester.getRect(find.text('今开')).top;
+
+      expect(
+        dailyTop,
+        intradayTop,
+        reason: '两个 tab 的图表区块必须等高，切 tab 不该让指标区位移',
+      );
+      expect(find.textContaining('区间'), findsNothing);
+      expect(find.text('加载更早'), findsNothing);
+      expect(find.textContaining('已到最早'), findsNothing);
+      // 绘图区本来就等高（KlineChart.height = 182），钉住别再改出差异
+      expect(tester.getSize(find.byType(KlineChart)).height, KlineChart.height);
+    });
+  });
+
+  testWidgets('日K 加 RepaintBoundary，分时不加', (WidgetTester tester) async {
+    await _open(tester, loader: _loader(intradayOk: true, dailyOk: true));
+
+    // 分时图跟着价格变，再包一层边界只会让栅格缓存反复失效（更亏）
+    expect(
+      find.descendant(
+        of: find.byType(KlineChart),
+        matching: find.byType(RepaintBoundary),
+      ),
+      findsNothing,
+      reason: '分时是动态图，包边界反而增加栅格缓存开销',
+    );
+
+    await tester.tap(find.text('日K'));
+    await tester.pumpAndSettle();
+
+    // 日K 是静态图：独立图层后，价格每秒跳动都不必重绘它
+    expect(
+      find.descendant(
+        of: find.byType(KlineChart),
+        matching: find.byType(RepaintBoundary),
+      ),
+      findsWidgets,
+      reason: '日K 静态，独立成层才不会跟着 tick 重绘',
+    );
+  });
+}
