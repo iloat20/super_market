@@ -20,6 +20,19 @@ String _row(
         '"JYS":"2","Classify":"$classify","MarketType":"$marketType",'
         '"SecurityTypeName":"$typeName"}';
 
+/// 美股行（2026-11-05 实测：AAPL=TypeUS 1/NASDAQ，BABA=TypeUS 3/NYSE，
+/// ETF=TypeUS 5，BRK_B 的 Code 带下划线）。
+String _usRow(
+  String code,
+  String name, {
+  required String typeUs,
+  required String jys,
+}) =>
+    '{"Code":"$code","Name":"$name","PinYin":"PY","ID":"${code}7",'
+        '"JYS":"$jys","Classify":"UsStock","MarketType":"7",'
+        '"SecurityTypeName":"美股","SecurityType":"7","MktNum":"105",'
+        '"TypeUS":"$typeUs","QuoteID":"105.$code"}';
+
 String _body(List<String> rows) =>
     '{"QuotationCodeTable":{"Data":[${rows.join(',')}],"Status":0,'
     '"Message":"","TotalCount":${rows.length}}}';
@@ -180,6 +193,87 @@ void main() {
         ),
       );
       expect(got.length, EastmoneySuggest.maxResults);
+    });
+  });
+
+  group('东财搜索建议：美股（MarketType=7 / UsStock）', () {
+    test('NASDAQ 正股（AAPL）：US 身份 + 交易所 NASDAQ', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[_usRow('AAPL', '苹果', typeUs: '1', jys: 'NASDAQ')]),
+        ),
+      );
+      expect(got.length, 1);
+      expect(got.single.code, 'AAPL');
+      expect(got.single.name, '苹果');
+      expect(got.single.region, 'US');
+      expect(got.single.exchange, 'NASDAQ');
+      expect(got.single.key, 'AAPL@US');
+    });
+
+    test('NYSE 中概 ADR（BABA，TypeUS=3）：放行', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[_usRow('BABA', '阿里巴巴', typeUs: '3', jys: 'NYSE')]),
+        ),
+      );
+      expect(got.single.region, 'US');
+      expect(got.single.exchange, 'NYSE');
+    });
+
+    test('ETF / 债票据（TypeUS 5/6）不放行：行情源未验证，搜到也出不了数', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[
+            _usRow('AAPB', '二倍做多苹果ETF', typeUs: '5', jys: 'NASDAQ'),
+            _usRow('AAPL29', 'Apple Inc Notes 2029', typeUs: '6', jys: 'NASDAQ'),
+          ]),
+        ),
+      );
+      expect(got, isEmpty);
+    });
+
+    test('AMEX 不放行：腾讯后缀（.N?）未实测，宁可搜不到也别搜到没数', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[_usRow('TSLP', '特斯拉收益ETF', typeUs: '5', jys: 'AMEX')]),
+        ),
+      );
+      expect(got, isEmpty);
+    });
+
+    test('带下划线的多类股（BRK_B）不放行：新浪 gb_brk_b 实测空串', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[_usRow('BRK_B', '伯克希尔哈撒韦-B', typeUs: '1', jys: 'NYSE')]),
+        ),
+      );
+      expect(got, isEmpty);
+    });
+
+    test('代码形状不对（小写 / 超长 / 空）不放行', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[
+            _usRow('aapl', '小写', typeUs: '1', jys: 'NASDAQ'),
+            _usRow('ABCDEF', '六位', typeUs: '1', jys: 'NASDAQ'),
+            _usRow('', '空代码', typeUs: '1', jys: 'NASDAQ'),
+          ]),
+        ),
+      );
+      expect(got, isEmpty);
+    });
+
+    test('美股与 A 股混排：各自归位', () {
+      final List<StockConfig> got = suggest.parse(
+        _bytes(
+          _body(<String>[
+            _row('600519', '贵州茅台', marketType: '1'),
+            _usRow('AAPL', '苹果', typeUs: '1', jys: 'NASDAQ'),
+          ]),
+        ),
+      );
+      expect(_labels(got), <String>['贵州茅台(SH600519)', '苹果(USAAPL)']);
     });
   });
 

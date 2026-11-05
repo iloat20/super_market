@@ -19,6 +19,14 @@
 ///   13:00–16:00 下午连续竞价（16:00–16:10 收市竞价，并入交易中）
 ///   16:10 之后  已收盘
 ///
+/// 美股（[ofUs]，输入是本地（北京）挂钟，内部折算成美东挂钟再判）：
+///   09:30–16:00 连续竞价（无集合竞价、无午休）
+///   周末按**美东**日历判——北京周六凌晨美股周五还在交易，这是两地
+///   时差自然形成的「错位周末」，必须先折算再判星期。
+///   夏令时（3 月第二个周日 ~ 11 月第一个周日）：北京 = ET + 12；
+///   冬令时：北京 = ET + 13。折算只影响时段判定（09:30/16:00 边界
+///   都离换制时刻 02:00 很远），±1h 的边界歧义对结果无影响。
+///
 /// 只判断「工作日 + 时段」，不处理法定节假日（需要交易日历，超出 MVP 范围）。
 /// 节假日会显示成「交易中」，这是已知限制，已写进 README。
 library;
@@ -102,19 +110,81 @@ enum MarketSession {
     return MarketSession.closed;
   }
 
+  /// 根据**本地（北京）挂钟**判断**美股**当前时段。
+  ///
+  /// 与 A 股共用同一组枚举（同 [ofHk] 的理由）：美股没有集合竞价和午休，
+  /// 这两个状态在美股口径下不会出现。
+  ///
+  /// 为什么不能直接拿北京的星期判周末：北京周六 03:00 是美东周五 14:00
+  /// （盘中）——必须先折算成美东挂钟，再判星期与时段。
+  static MarketSession ofUs(DateTime time) {
+    final DateTime et = _toEastern(time);
+    if (et.weekday == DateTime.saturday || et.weekday == DateTime.sunday) {
+      return MarketSession.weekend;
+    }
+    final int m = et.hour * 60 + et.minute;
+    if (m < _usOpen) {
+      return MarketSession.preOpen;
+    }
+    // 16:00 收盘，无收市竞价
+    if (m < _usClose) {
+      return MarketSession.trading;
+    }
+    return MarketSession.closed;
+  }
+
+  /// 北京钟 → 美东挂钟。
+  ///
+  /// 先按夏令时（-12h）折算，看折算结果的日期是否落在夏令时窗口内：
+  /// 在就用它，不在回退到冬令时（-13h）。窗口按 2007 年起的美国规则：
+  /// 3 月第二个周日 02:00 起、11 月第一个周日 02:00 止（美东当地挂钟）。
+  ///
+  /// 换制日（02:00–03:00）折算有 ±1h 歧义，但那远离 09:30/16:00 的
+  /// 时段边界，对判定结果没有影响（见 [ofUs] 注释）。
+  static DateTime _toEastern(DateTime beijing) {
+    final DateTime edt = beijing.subtract(const Duration(hours: 12));
+    return _inUsDst(edt) ? edt : beijing.subtract(const Duration(hours: 13));
+  }
+
+  /// 美东挂钟是否处于夏令时（判定输入本身必须是美东挂钟）。
+  static bool _inUsDst(DateTime et) {
+    if (et.month > 3 && et.month < 11) {
+      return true;
+    }
+    // 3 月：第二个周日（第一个周日 + 7）当天起
+    if (et.month == 3) {
+      return et.day >= _firstSundayOf(et.year, 3) + 7;
+    }
+    // 11 月：第一个周日当天 02:00 止，整天按冬令时算（02:00 前的歧义无关痛痒）
+    if (et.month == 11) {
+      return et.day < _firstSundayOf(et.year, 11);
+    }
+    return false; // 12/1/2 月恒为冬令时
+  }
+
+  /// 某月第一个周日的「日」（Dart `weekday`：周一=1 … 周日=7）。
+  static int _firstSundayOf(int year, int month) {
+    final int weekdayOf1st = DateTime(year, month, 1).weekday;
+    return 1 + (7 - weekdayOf1st) % 7;
+  }
+
   /// 按**订阅市场并集**判断当前时段：只要有一个订阅市场在交易，整页就算
   /// 「交易中」。页头角标与太极共用这个口径，避免出现「角标说已收盘、
   /// 港股还在跳、太极还在转」的自相矛盾。
   ///
-  /// [regions] 里 `HK` 走 [ofHk]，其余（SH/SZ）走 [of]；空集合退回 A 股
-  /// 口径，保证没传订阅信息的调用方行为不变。
+  /// [regions] 里 `HK` 走 [ofHk]、`US` 走 [ofUs]，其余（SH/SZ）走 [of]；
+  /// 空集合退回 A 股口径，保证没传订阅信息的调用方行为不变。
   ///
   /// 合并优先级：交易中 > 集合竞价 > 午间休市 > 未开盘 > 已收盘。
   /// 「休市」只有全部订阅市场都休市时才成立。
   static MarketSession ofRegions(DateTime time, Iterable<String> regions) {
     final Set<MarketSession> sessions = <MarketSession>{
       for (final String region in regions)
-        region == 'HK' ? ofHk(time) : of(time),
+        region == 'HK'
+            ? ofHk(time)
+            : region == 'US'
+            ? ofUs(time)
+            : of(time),
     };
     if (sessions.isEmpty) {
       return of(time);
@@ -147,4 +217,8 @@ enum MarketSession {
   static const int _hkLunchStart = 12 * 60; // 12:00
   static const int _hkAfternoonStart = 13 * 60; // 13:00
   static const int _hkClose = 16 * 60 + 10; // 16:10（含收市竞价）
+
+  // 美股（美东挂钟，无午休）
+  static const int _usOpen = 9 * 60 + 30; // 09:30
+  static const int _usClose = 16 * 60; // 16:00
 }

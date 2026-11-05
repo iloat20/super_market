@@ -147,9 +147,11 @@ class _TaijiMarkState extends State<TaijiMark>
   /// 订阅里任意市场在交易（含集合竞价）即视为「数据是活的」
   bool _anyLive(DateTime t) {
     for (final String region in _regions) {
-      final MarketSession session = region == 'HK'
-          ? MarketSession.ofHk(t)
-          : MarketSession.of(t);
+      final MarketSession session = switch (region) {
+        'HK' => MarketSession.ofHk(t),
+        'US' => MarketSession.ofUs(t),
+        _ => MarketSession.of(t),
+      };
       if (session.isLive) {
         return true;
       }

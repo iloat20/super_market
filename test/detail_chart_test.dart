@@ -19,6 +19,13 @@ const StockConfig kMaotai = StockConfig(
   region: 'SH',
 );
 
+const StockConfig kApple = StockConfig(
+  code: 'AAPL',
+  name: '苹果',
+  region: 'US',
+  exchange: 'NASDAQ',
+);
+
 const String _intraday = '''
 {"result":{"status":{"code":0},"data":[
  {"day":"2026-11-03 09:30:00","open":"1450","high":"1450","low":"1450","close":"1450","volume":"165000","amount":"239250000"},
@@ -30,9 +37,19 @@ const String _daily = '''
  {"day":"2026-10-30","open":"1363.000","high":"1393.370","low":"1352.980","close":"1392.050","volume":"5992729"},
  {"day":"2026-11-02","open":"1410.000","high":"1447.000","low":"1395.020","close":"1439.100","volume":"8269122"}]}}''';
 
-Quote _quote({double price = 1451.01}) => Quote(
-      code: '600519',
-      region: 'SH',
+/// 美股走腾讯 ifzq（新浪 K 线不支持美股，loader 链里被 supports 跳过），
+/// 形状是 `{"code":0,"data":{"usAAPL.OQ":{"day":[[日期,开,收,高,低,量(股)],…]}}}`。
+/// 数据取自 2026-11-05 真网探针（tool/us_live_probe_test.dart）。
+const String _usDaily = '''
+{"code":0,"msg":"","data":{"usAAPL.OQ":{"day":[
+ ["2026-11-03","325.580","331.900","334.500","325.330","63160026.000"],
+ ["2026-11-04","341.570","349.510","354.500","340.990","89637749.000"]],
+"qt":{},"prec":"343.990","version":"16"}}}''';
+
+Quote _quote({double price = 1451.01, String code = '600519', String region = 'SH'}) =>
+    Quote(
+      code: code,
+      region: region,
       price: price,
       change: price - 1439.1,
       changePercent: (price - 1439.1) / 1439.1 * 100,
@@ -64,11 +81,28 @@ KlineLoader _loader({
   );
 }
 
+/// 美股 loader：日线走腾讯 fqkline（按路径判别），fixtrue 用真探针报文。
+KlineLoader _usLoader({required bool dailyOk}) {
+  return KlineLoader(
+    httpGet: (Uri uri, Map<String, String> headers) async {
+      if (!dailyOk) {
+        return const HttpRawResponse(statusCode: 502, body: <int>[]);
+      }
+      return HttpRawResponse(
+        statusCode: 200,
+        body: utf8.encode(_usDaily),
+      );
+    },
+  );
+}
+
 Future<void> _open(
   WidgetTester tester, {
   required KlineLoader loader,
   Quote? quote,
-}) async {  final ValueNotifier<Quote> notifier =
+  StockConfig stock = kMaotai,
+}) async {
+  final ValueNotifier<Quote> notifier =
       ValueNotifier<Quote>(quote ?? _quote());
   addTearDown(notifier.dispose);
 
@@ -80,7 +114,7 @@ Future<void> _open(
             child: ElevatedButton(
               onPressed: () => showQuoteDetailSheet(
                 context,
-                stock: kMaotai,
+                stock: stock,
                 quote: notifier,
                 loader: loader,
               ),
@@ -157,6 +191,60 @@ void main() {
     await tester.tap(find.text('走势暂不可用 · 点此重试'));
     await tester.pumpAndSettle();
     expect(calls, 4); // 失败不写缓存，重试真的又打了一轮
+  });
+
+  group('美股详情页：走势不可用就直接不显示', () {
+    testWidgets('默认打开「日K」（分时 tab 不渲染），腾讯日线正常出图', (
+      WidgetTester tester,
+    ) async {
+      await _open(
+        tester,
+        loader: _usLoader(dailyOk: true),
+        stock: kApple,
+        quote: _quote(code: 'AAPL', region: 'US', price: 349.51),
+      );
+
+      // 分时对美股没有入口：收盘时段必空，不给一个注定失败的 tab
+      expect(find.text('分时'), findsNothing);
+      expect(find.text('日K'), findsOneWidget);
+
+      final KlineChart chart = tester.widget<KlineChart>(find.byType(KlineChart));
+      expect(chart.mode, ChartMode.daily, reason: '美股默认打开日 K，不是注定为空的分时');
+      expect(chart.region, 'US');
+      // 腾讯日线（量是股，真探针数值，×100 会变成 8963774900）：
+      // fixture 给了 2 根（11-03 / 11-04），实时报价是 11-03 的 →
+      // patchTodayBar 会再拼一根「今日」棒（与 A/H 同一套补丁语义）
+      expect(chart.bars.length, 3);
+      expect(chart.bars.first.close, 331.90);
+      expect(chart.bars[1].volume, 89637749);
+      expect(chart.bars.last.close, 349.51, reason: '末根收盘被实时价补上');
+
+      // 指标区照常
+      expect(find.text('今开'), findsOneWidget);
+      expect(find.text('349.51'), findsOneWidget);
+    });
+
+    testWidgets('日 K 也拉不到 → 整个走势区块不显示（无占位、无 tab）', (
+      WidgetTester tester,
+    ) async {
+      await _open(
+        tester,
+        loader: _usLoader(dailyOk: false),
+        stock: kApple,
+        quote: _quote(code: 'AAPL', region: 'US', price: 349.51),
+      );
+
+      expect(find.byType(KlineChart), findsNothing);
+      expect(find.text('日K'), findsNothing);
+      // A 股的「点此重试」占位不出现：美股按「不可用就不显示」处理
+      expect(find.text('走势暂不可用 · 点此重试'), findsNothing);
+
+      // 指标区照常，不能被走势消失带偏
+      expect(find.text('今开'), findsOneWidget);
+      expect(find.text('昨收'), findsOneWidget);
+      expect(find.text('成交额 (USD)'), findsOneWidget);
+      expect(find.text('349.51'), findsOneWidget);
+    });
   });
 
   group('分时 / 日K 图表区块等高', () {

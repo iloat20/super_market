@@ -44,18 +44,22 @@ class SinaSource implements PollingSource {
   String get displayName => '新浪财经';
 
   @override
-  List<String> get markets => const <String>['SZ', 'SH', 'HK'];
+  List<String> get markets => const <String>['SZ', 'SH', 'HK', 'US'];
 
   // ==================== 批量报价 ====================
 
   /// A 股：`sz000001` / `sh600519`——小写市场前缀 + 代码。
   /// 港股：`rt_hk00700`——**前缀是 `rt_hk`**（realtime-hk），不是 `hk`。
+  /// 美股：`gb_aapl`——前缀 `gb_` + **小写**字母代码（2026-11-05 实测，
+  /// 不带交易所后缀；`gb_brk_b` 这类带下划线的多类股返回空串，见 README）。
   ///
   /// 与内部身份键 `000001@SZ` 不同：那个是给 notifier / 判重用的，
   /// 换源不该跟着变；这个只是协议写法。
-  static String wireSymbol(StockConfig stock) => stock.region == 'HK'
-      ? 'rt_hk${stock.code}'
-      : '${stock.region.toLowerCase()}${stock.code}';
+  static String wireSymbol(StockConfig stock) => switch (stock.region) {
+    'HK' => 'rt_hk${stock.code}',
+    'US' => 'gb_${stock.code.toLowerCase()}',
+    _ => '${stock.region.toLowerCase()}${stock.code}',
+  };
 
   /// `https://hq.sinajs.cn/list=sz000001,sh600519,sz000858`
   ///
@@ -120,9 +124,14 @@ class SinaSource implements PollingSource {
       final String symbol = line.substring(keyAt + 7, eq);
       final List<String> f = body.split(',');
       // 字段数不固定：沪 34 / 深 33，低于 32 说明不是个股报文（指数只有 28 个）；
-      // 港股报文（rt_hk）只有 19 个有效字段，走它自己的解析分支（见 _toHkQuote）
+      // 港股报文（rt_hk）只有 19 个有效字段，走它自己的解析分支（见 _toHkQuote）；
+      // 美股报文（gb_）要读到 [30] 成交额，低于 31 整行跳过
       if (symbol.startsWith('rt_hk')) {
         if (f.length < 19) {
+          continue;
+        }
+      } else if (symbol.startsWith('gb_')) {
+        if (f.length < 31) {
           continue;
         }
       } else if (f.length < 33) {
@@ -140,6 +149,8 @@ class SinaSource implements PollingSource {
 
       final Quote? quote = symbol.startsWith('rt_hk')
           ? _toHkQuote(f, stock)
+          : symbol.startsWith('gb_')
+          ? _toUsQuote(f, stock)
           : _toQuote(f, stock);
       if (quote != null) {
         out.add(quote);
@@ -265,6 +276,57 @@ class SinaSource implements PollingSource {
       low: _num(f[5]) ?? 0,
       volume: _num(f[12]) ?? 0, // 股，不换算
       turnover: _num(f[11]) ?? 0, // HKD 元，不换算
+      tradingStatus: TradingStatus.normal,
+      timestamp: ts,
+      type: 'quote',
+      source: QuoteSource.socket,
+    );
+  }
+
+  /// 美股报文（`gb_` 前缀）解析。与 A 股 / 港股又是**一套独立的字段表**
+  /// （2026-11-05 实测 `gb_aapl` / `gb_baba` / `gb_pdd` / `gb_nio`）：
+  ///
+  /// ```text
+  /// 苹果,349.5100,5.31,2026-11-05 18:16:10,17.6100,341.5650,354.5000,
+  ///   340.9900,351.7300,242.8900,89637676,…,2026,31441204724.8845,…
+  /// ```
+  ///
+  /// 下标：`0` 名称 · `1` 现价 · `2` 涨跌幅% · `3` 时间（**北京时间**）·
+  /// `4` 涨跌额 · `5` 今开 · `6` 最高 · `7` 最低 · `8/9` 52 周高/低 ·
+  /// `10` 成交量（**股**） · `12` 总市值 · `21..23` 盘前价/幅/额 ·
+  /// `24/25` 盘前/收盘时间（美东） · `26` **昨收** · `30` 成交额（USD）。
+  ///
+  /// 三个最容易踩的坑：
+  /// 1. **昨收在 [26] 不在 [5]**——[5] 是今开（A 股报文里 [2] 才是昨收）；
+  ///    交叉验证：349.51 − 17.61 = 331.90 = f[26] ✓，且与腾讯 K 线 qt 同值；
+  /// 2. 涨跌额/幅是**现成的字段**（4/2），与港股一样不用回算；
+  /// 3. 单位自洽：额 ÷ 量 ≈ 现价（3144 亿 ÷ 8964 万 ≈ 350）✓。
+  ///
+  /// 盘前价（[21]）第一版不展示：它只在盘前时段有意义，且官方收盘价
+  /// 才是卡片主价（与新浪网页口径一致）。时间戳 [3] 在盘前也会跳
+  /// （盘前价在动），但主价停在昨收——这是源的事实，不是解析错误。
+  Quote? _toUsQuote(List<String> f, StockConfig stock) {
+    final double? price = _num(f[1]);
+    if (price == null || price <= 0) {
+      return null; // 退市 / 无成交：0 价绝不能覆盖已有行情
+    }
+    final DateTime? ts = DateTime.tryParse(f[3].trim());
+    if (ts == null) {
+      return null; // 没有时间就无法参与 shouldApplyQuote 的新旧比较
+    }
+
+    return Quote(
+      code: stock.code,
+      region: stock.region,
+      price: price,
+      change: _num(f[4]) ?? 0,
+      changePercent: _num(f[2]) ?? 0,
+      previousClose: _num(f[26]) ?? 0,
+      open: _num(f[5]) ?? 0,
+      high: _num(f[6]) ?? 0,
+      low: _num(f[7]) ?? 0,
+      volume: _num(f[10]) ?? 0, // 股，不换算
+      turnover: _num(f[30]) ?? 0, // USD 元，不换算
       tradingStatus: TradingStatus.normal,
       timestamp: ts,
       type: 'quote',

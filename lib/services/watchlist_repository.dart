@@ -69,6 +69,7 @@ class WatchlistRepository {
 
   // ==================== 序列化（纯函数，可单测）====================
 
+  /// `e` = 交易所（只有美股非空）。旧存档没有这个键也能读回（见 [decode]）。
   static String encode(List<StockConfig> stocks) => jsonEncode(
     stocks
         .map(
@@ -76,6 +77,7 @@ class WatchlistRepository {
             'c': s.code,
             'n': s.name,
             'r': s.region,
+            if (s.exchange.isNotEmpty) 'e': s.exchange,
           },
         )
         .toList(),
@@ -103,17 +105,28 @@ class WatchlistRepository {
       final String code = '${item['c'] ?? ''}'.trim();
       final String region = '${item['r'] ?? ''}'.trim().toUpperCase();
       final String name = '${item['n'] ?? ''}'.trim();
+      final String exchange = '${item['e'] ?? ''}'.trim();
       // 市场白名单来自**轮询内核链**（真正供报价的那条链）：
       // 换源之后，旧存档里它不覆盖的市场就该被丢掉，而不是留给订阅去撞墙。
       // 注意不能用 `MarketDataSources.current`——那是推送源（已退役），
       // 它的 markets 停在沪深两市，会让港股存档被误丢。
       //
-      // 代码形状必须与市场一致：港股 5 位、沪深 6 位。不做这道校验的话，
-      // `12345@SH` 这种残缺条目会被当成 A 股放进去，行情接口返回空、
-      // 界面上是一张永远 `--` 的卡。
-      final bool shapeOk = region == 'HK' ? code.length == 5 : code.length == 6;
+      // 代码形状必须与市场一致：港股 5 位、美股 1–5 位大写字母、沪深 6 位。
+      // 不做这道校验的话，`12345@SH` 这种残缺条目会被当成 A 股放进去，
+      // 行情接口返回空、界面上是一张永远 `--` 的卡。
+      final bool shapeOk = switch (region) {
+        'HK' => code.length == 5,
+        'US' => _usCodePattern.hasMatch(code),
+        _ => code.length == 6,
+      };
+      // 美股还必须带**已验证的交易所**：腾讯写法要按交易所拼后缀
+      // （NASDAQ→.OQ、NYSE→.N），没有或没验证过（AMEX）的条目去了也是
+      // 永远无数据的卡，宁可丢弃重建。
+      final bool exchangeOk = region != 'US' || exchange == 'NASDAQ' ||
+          exchange == 'NYSE';
       if (!isValidCode(code) ||
           !shapeOk ||
+          !exchangeOk ||
           !_supportedRegions.contains(region)) {
         AppLog.w('订阅存档里有无效条目，已跳过: $item');
         continue;
@@ -127,6 +140,7 @@ class WatchlistRepository {
           code: code,
           name: name.isEmpty ? code : name,
           region: region,
+          exchange: exchange,
         ),
       );
       // 上限用公开源的 30 只，而不是免费档的 3 只：
@@ -140,10 +154,18 @@ class WatchlistRepository {
     return result;
   }
 
+  /// 美股代码：1–5 位大写字母。
+  static final RegExp _usCodePattern = RegExp(r'^[A-Z]{1,5}$');
+
   /// A 股代码：6 位纯数字（必须保留前导零，不能转 int）；
-  /// 港股代码：5 位纯数字（同样保留前导零，`00700` 不是 `700`）。
-  static bool isValidCode(String code) =>
-      (code.length == 6 || code.length == 5) && int.tryParse(code) != null;
+  /// 港股代码：5 位纯数字（同样保留前导零，`00700` 不是 `700`）；
+  /// 美股代码：1–5 位大写字母（`AAPL`，带点/下划线的多类股不支持）。
+  static bool isValidCode(String code) {
+    if (_usCodePattern.hasMatch(code)) {
+      return true;
+    }
+    return (code.length == 6 || code.length == 5) && int.tryParse(code) != null;
+  }
 
   /// 按代码前缀推断市场。
   ///
@@ -152,7 +174,12 @@ class WatchlistRepository {
   ///
   /// 4/8 开头是北交所，iTick 的 region 取值未经验证，这里返回 null 表示不支持
   /// —— 猜一个 `BJ` 上去只会换来一句看不懂的服务端错误。
+  /// 字母代码（美股）同样返回 null：交易所**无法**从代码推断（同一串字母
+  /// 可能在 NASDAQ 也可能在 NYSE），美股只能走搜索添加。
   static String? regionForCode(String code) {
+    if (_usCodePattern.hasMatch(code)) {
+      return null;
+    }
     if (code.length == 5 && int.tryParse(code) != null) {
       return 'HK'; // 港股：5 位数字是它最可靠的特征
     }

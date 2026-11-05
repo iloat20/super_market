@@ -337,8 +337,9 @@ class _QuoteListPageState extends State<QuoteListPage>
                 child: HeaderFade(
                   canvasHeight: canvasHeight,
                   topInset: topInset,
-                  // 页头内容的底边：top 8 + padding 10 + 太极 48 + padding 10
-                  solidHeight: 76,
+                  // 页头内容的底边：top 0 + padding 8 + 太极区 48 + padding 10
+                  // （2026-11-05 页头整体上移 10px：原 top 8 + padding 10）
+                  solidHeight: 66,
                   height: headerBlockHeight,
                 ),
               ),
@@ -350,7 +351,10 @@ class _QuoteListPageState extends State<QuoteListPage>
                     child: Stack(
                       children: <Widget>[
                         Positioned(
-                          top: 8,
+                          // 2026-11-05 用户要求页头上移 10px：top 8→0（-8），
+                          // 再把 _buildHeader 上 padding 10→8（-2）。SafeArea
+                          // 之内，不钻状态栏；太极顶距状态栏下沿 8px（原 18）。
+                          top: 0,
                           left: 16,
                           right: 16,
                           child: _buildHeader(),
@@ -467,7 +471,8 @@ class _QuoteListPageState extends State<QuoteListPage>
   Widget _buildHeader() {
     return RepaintBoundary(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+        // 上 8：2026-11-05 页头上移 10px 的一部分（top 8→0 承担另外 8px）
+        padding: const EdgeInsets.fromLTRB(14, 8, 10, 10),
         child: Row(
           children: <Widget>[
             // 圆形太极：订阅里任意市场在交易就自转（混合 A+H 自选时，
@@ -512,22 +517,8 @@ class _QuoteListPageState extends State<QuoteListPage>
                       mainAxisAlignment: MainAxisAlignment.end,
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        // 自选可混 A 股与 H 股，所以写 AH；原来的「·」按
-                        // 要求去掉，标签与时段角标之间只留间距
-                        const Flexible(
-                          child: Text(
-                            'AH',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              letterSpacing: 0.4,
-                              fontWeight: FontWeight.w600,
-                              color: GlassPalette.inkSoft,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
+                        // 「AH」市场前缀已按用户要求移除（2026-11-05）：
+                        // 角标本身已经按订阅市场并集判定时段，前缀是冗余信息
                         Flexible(
                           child: MarketSessionBadge(
                             now: widget.clock ?? DateTime.now,

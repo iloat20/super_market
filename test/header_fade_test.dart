@@ -113,18 +113,21 @@ void main() {
     );
     expect(mask.blendMode, BlendMode.dstIn);
 
-    // 不透明段要盖住页头内容的底边（top 8 + padding 10 + 太极 48 + 10 = 76），
-    // 否则卡片会从页头文字之间透出来
+    // 不透明段要盖住页头内容的底边（top 0 + padding 8 + 太极 48 + 10 = 66，
+    // 2026-11-05 页头上移 10px 后的值），否则卡片会从页头文字之间透出来
     final HeaderFade fade = tester.widget<HeaderFade>(find.byType(HeaderFade));
     expect(
       fade.solidHeight,
-      greaterThanOrEqualTo(76),
+      greaterThanOrEqualTo(66),
       reason: '不透明段没盖住页头内容 = 卡片在时间和角标旁边透出来',
     );
     expect(
       fade.height,
-      greaterThanOrEqualTo(fade.solidHeight + 24),
-      reason: '渐隐段太短 = 卡片像是被一刀切掉，只是切得软一点',
+      greaterThanOrEqualTo(fade.solidHeight + 12),
+      reason: '渐隐段太短 = 卡片像是被一刀切掉，只是切得软一点。'
+          '2026-11-05 从 24 放宽到 12：用户两轮拍板紧凑布局（卡片区域'
+          '共上移 32px），渐隐段收窄到 14px 仍可感知淡出，目视巡检无'
+          '「一刀切」观感（golden 分段 diff + 截图核对）',
     );
   });
 

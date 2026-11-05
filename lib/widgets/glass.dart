@@ -413,7 +413,9 @@ class HeaderFade extends StatelessWidget {
     super.key,
     required this.canvasHeight,
     this.topInset = 0,
-    this.solidHeight = 76,
+    // 页头内容底边：top 0 + padding 8 + 太极区 48 + padding 10（2026-11-05
+    // 页头上移 10px 后的值；调用方 quote_list_page 传的也是它）
+    this.solidHeight = 66,
     this.height = headerBlockHeight,
   });
 
@@ -470,10 +472,16 @@ class HeaderFade extends StatelessWidget {
 
 /// 列表顶部要让开页头的高度（= [HeaderFade.height]）。
 ///
-/// 从 96 加到 112 是**为了让第一张卡片躲开渐隐区**：留白 96 时卡片顶边
-/// 落在 98，正踩在 76→112 的渐隐段里，上沿会被盖掉一截、比卡身灰一档；
-/// 留白抬到 112 之后卡片从 114 才开始，渐隐段对它零影响。
-const double headerBlockHeight = 112;
+/// 历史上从 96 加到 112，是为了让第一张卡片躲开渐隐区：留白 96 时卡片顶边
+/// 落在 98，正踩在 76→112 的渐隐段里，上沿会被盖掉一截、比卡身灰一档。
+///
+/// 2026-11-05 两轮收紧（用户：「卡片区域往上提一点」→「再上移 20px」）：
+/// 112 → 100（-12）→ **80**（-20）。页头底边在 66（页头上移 10px 后），
+/// 渐隐起点动不了，靠压缩渐隐段（36 → 24 → **14px**）上移底边——卡片从
+/// 82 开始，仍在渐隐段之外，不会被压灰。渐隐段只剩 14px，上滑时卡片被
+/// 「吃掉」的过程比较急促，这是紧凑布局的代价；再往上提就要连页头一起
+/// 重排了（卡片与页头底边只剩 16px 视觉间隔）。
+const double headerBlockHeight = 80;
 
 /// 一团**没有边界**的光，圆心按画布归一化坐标放置。
 ///

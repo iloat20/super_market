@@ -110,23 +110,26 @@ class EastmoneySuggest implements SymbolSearch {
       if (row is! Map<String, Object?>) {
         continue;
       }
-      final String region = _regionOf('${row['MarketType'] ?? ''}');
+      final String classify = '${row['Classify'] ?? ''}';
+      final String region = classify == 'UsStock'
+          ? 'US'
+          : _regionOf('${row['MarketType'] ?? ''}');
       if (region.isEmpty) {
-        continue; // 北交所（_TB）、美股、板块 …
+        continue; // 北交所（_TB）、德股/期货/板块 …
       }
       final String code = '${row['Code'] ?? ''}'.trim();
       final String name = '${row['Name'] ?? ''}'.trim();
-      if (name.isEmpty ||
-          (region == 'HK'
-              ? !_isHkStock(code, name)
-              : !_isAShareCode(region, code))) {
+      if (name.isEmpty) {
         continue;
       }
-      final StockConfig stock = StockConfig(
-        code: code,
-        name: name,
-        region: region,
-      );
+      final StockConfig? stock = switch (region) {
+        'HK' => _hkOrNull(code, name),
+        'US' => _usOrNull(row, code, name),
+        _ => _aShareOrNull(region, code, name),
+      };
+      if (stock == null) {
+        continue;
+      }
       if (seen.add(stock.key)) {
         out.add(stock);
       }
@@ -163,6 +166,14 @@ class EastmoneySuggest implements SymbolSearch {
         code.startsWith('3'); // 000/001/002/003/300/301
   }
 
+  /// A 股行的组装：市场字段 + 号段双闸。
+  static StockConfig? _aShareOrNull(String region, String code, String name) {
+    if (!_isAShareCode(region, code)) {
+      return null;
+    }
+    return StockConfig(code: code, name: name, region: region);
+  }
+
   /// 是否属于「能看的港股」。
   ///
   /// `MarketType=5` 里混着四类（全部实测，搜「腾讯 / 阿里巴巴 / 美团」）：
@@ -178,6 +189,52 @@ class EastmoneySuggest implements SymbolSearch {
   /// 轮证/牛熊证的名称特征（购/沽/牛/熊）。提升为 static：
   /// parse 对每行结果都要过一遍，不该每次新建 RegExp
   static final RegExp _hkDerivativePattern = RegExp(r'[购沽牛熊]');
+
+  static StockConfig? _hkOrNull(String code, String name) {
+    if (!_isHkStock(code, name)) {
+      return null;
+    }
+    return StockConfig(code: code, name: name, region: 'HK');
+  }
+
+  /// 是否属于「能看的美股」，以及它的交易所。
+  ///
+  /// `Classify=UsStock` 里混着七类（2026-11-05 实测，搜「AAPL / 特斯拉 /
+  /// 苹果 / 阿里巴巴 / 拼多多 / brk」）：
+  ///
+  /// | 例 | TypeUS | 收不收 |
+  /// | --- | --- | --- |
+  /// | `AAPL 苹果` / `TSLA 特斯拉` | `1` 正股 | ✓ |
+  /// | `BABA 阿里巴巴` / `PDD 拼多多` / `NIO 蔚来` | `3` **ADR（中概股全在这）** | ✓ |
+  /// | `BRKRP` 优先股 | `2` | ✗ 行情未验证 |
+  /// | `AAPB 二倍做多苹果ETF` 等杠杆/收益 ETF | `5` | ✗ |
+  /// | `AAPL29 Apple Notes 2029` 债票据 | `6` | ✗ |
+  /// | `BRKHW` 权证 / `BRKHU` 单位 | `8` / `9` | ✗ |
+  ///
+  /// 另两道闸（都实测过）：
+  /// 1. **交易所只放 NASDAQ / NYSE**（`JYS` 字段）：腾讯写法要带后缀
+  ///    （NASDAQ=`.OQ`、NYSE=`.N`），AMEX 的后缀没验证过——宁可搜不到，
+  ///   也别搜到之后三个 `--`；
+  /// 2. **代码形状 `^[A-Z]{1,5}$`**：`BRK_B`（伯克希尔-B）这类带下划线的
+  ///    多类股，新浪 `gb_brk_b` 实测返回**空串**——放进来就是永远无数据的卡。
+  static StockConfig? _usOrNull(Map<String, Object?> row, String code, String name) {
+    final String typeUs = '${row['TypeUS'] ?? ''}';
+    if (typeUs != '1' && typeUs != '3') {
+      return null;
+    }
+    final String jys = '${row['JYS'] ?? ''}';
+    if (jys != 'NASDAQ' && jys != 'NYSE') {
+      return null;
+    }
+    if (!_usCodePattern.hasMatch(code)) {
+      return null;
+    }
+    return StockConfig(code: code, name: name, region: 'US', exchange: jys);
+  }
+
+  /// 美股代码：1–5 位大写字母（NYSE/NASDAQ 正股的常见上限是 5 位；
+  /// 带点/下划线的多类股单独被这道闸挡住）。
+  static final RegExp _usCodePattern = RegExp(r'^[A-Z]{1,5}$');
 
   static bool _isHkStock(String code, String name) {
     if (code.length != 5 || int.tryParse(code) == null) {

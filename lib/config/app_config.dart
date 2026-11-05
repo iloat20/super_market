@@ -11,19 +11,32 @@ class StockConfig {
     required this.code,
     required this.name,
     required this.region,
+    this.exchange = '',
   });
 
-  /// 纯数字代码，如 000001（A 股代码有前导零，不要转 int）
+  /// 纯数字代码，如 000001（A 股代码有前导零，不要转 int）；
+  /// 美股是字母代码（如 AAPL，1–5 位大写字母）。
   final String code;
 
   /// 展示用名称
   final String name;
 
-  /// 市场代码：SH = 沪市，SZ = 深市。
+  /// 市场代码：SH = 沪市，SZ = 深市，HK = 港股，US = 美股。
   ///
   /// 这个取值同时是"标的身份"的一部分：`000001` 在深市是平安银行、
   /// 在沪市是上证指数，所以任何按键索行情的地方都必须带上它。
   final String region;
+
+  /// 交易所（协议细节，只在美股有意义）：NASDAQ / NYSE。
+  ///
+  /// 为什么放在 [StockConfig] 而不是各源内部：腾讯美股写法带交易所后缀
+  /// （NASDAQ → `.OQ`、NYSE → `.N`），新浪不带——这是**标的的属性**，
+  /// 不是某个源的私有配置。搜索（东财 `JYS` 字段）填入，随存档持久化。
+  ///
+  /// 为什么不参与 [key]：身份键是内部语义（notifier 键、判重、存档比对），
+  /// 同一市场内交易所不影响身份——新浪写法根本没有后缀，键跟着交易所变
+  /// 只会让同一只票在不同链路里对不上。
+  final String exchange;
 
   /// 标的在**本 App 内部**的身份键。
   ///
@@ -38,7 +51,8 @@ class StockConfig {
   /// 值相等：订阅列表要判重、要和本地存档比对，必须按内容比较。
   ///
   /// 注意 region 也参与比较：`000001` 在 SZ 是平安银行、在 SH 是上证指数，
-  /// 只比 code 会把两个完全不同的标的当成同一只。
+  /// 只比 code 会把两个完全不同的标的当成同一只。exchange 是协议细节、
+  /// 不参与判重：搜索结果与存档条目在 exchange 缺失时也应视为同一只。
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -51,7 +65,9 @@ class StockConfig {
   int get hashCode => Object.hash(code, region, name);
 
   @override
-  String toString() => 'StockConfig($name $code@$region)';
+  String toString() =>
+      'StockConfig($name $code@$region'
+      '${exchange.isEmpty ? '' : ' $exchange'})';
 }
 
 abstract final class AppConfig {

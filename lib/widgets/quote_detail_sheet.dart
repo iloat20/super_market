@@ -66,7 +66,15 @@ class _QuoteDetailSheet extends StatefulWidget {
 class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
   late final KlineLoader _loader = widget.loader ?? KlineLoader();
 
-  ChartMode _mode = ChartMode.intraday;
+  /// 美股默认打开**日 K**：分时在免费源上只有盘中可能有数据（收盘时段必空，
+  /// 见 README 二·三十三），打开就撞一个注定失败的占位毫无意义；日 K 是
+  /// 唯一被真网探针证实稳定可用的美股走势。A/H 维持分时优先。
+  /// （late 初始化器延迟到首次访问，可以读 [widget]；美股的分时 tab 不渲染，
+  /// _switchMode 实际不会被调到 intraday。）
+  late ChartMode _mode = widget.stock.region == 'US'
+      ? ChartMode.daily
+      : ChartMode.intraday;
+
   KlineResult<Kline>? _daily;
   KlineResult<IntradayPoint>? _intraday;
   bool _loading = true;
@@ -302,21 +310,32 @@ class _ChartSection extends StatelessWidget {
         ? points.length < 2
         : bars.isEmpty;
 
+    // 美股：走势不可用就**直接不显示**（2026-11-05 用户拍板）。A/H 的
+    // 「点此重试」占位对美股不适用——分时收盘必空是常态而非故障，一个
+    // 永远修不好的重试按钮只会让人怀疑 App 坏了。日 K 是美股唯一的
+    // 走势 tab（分时没有入口），它也拿不到数据时整块收起，详情页只剩
+    // 头部 + 指标。loading 期间照常出骨架：短暂且语义正确。
+    if (region == 'US' && !loading && (empty || error != null)) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Row(
           children: <Widget>[
             // 两个 tab 的余量各自朝外侧扩，避免互相盖住对方的点击区。
-            HitTarget(
-              alignment: Alignment.centerRight,
-              child: _Segment(
-                mode: ChartMode.intraday,
-                current: mode,
-                onTap: onModeChanged,
+            // 美股没有分时 tab（收盘时段必空，见上方注释），只留日 K。
+            if (region != 'US')
+              HitTarget(
+                alignment: Alignment.centerRight,
+                child: _Segment(
+                  mode: ChartMode.intraday,
+                  current: mode,
+                  onTap: onModeChanged,
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
+            if (region != 'US') const SizedBox(width: 6),
             HitTarget(
               alignment: Alignment.centerLeft,
               child: _Segment(
@@ -596,8 +615,8 @@ class _Metrics extends StatelessWidget {
   /// 的昨收价会被读成今早的价（真机 2026-11-05 09:01 的误读现场）。
   final DateTime Function() now;
 
-  /// `HK` 时成交额标注币种——A 股是人民币不用标，港股是港币，
-  /// 不标的话「成交额 5.4 亿」会被读成人民币，差了 17% 的汇率。
+  /// 港/美股时成交额标注币种——A 股是人民币不用标，港股是港币、美股是
+  /// 美元，不标的话「成交额 5.4 亿」会被读成人民币，差了 17%（美股差 7 倍）。
   final String region;
 
   @override
@@ -631,7 +650,11 @@ class _Metrics extends StatelessWidget {
         value: q.volume > 0 ? formatCompact(q.volume) : '--',
       ),
       _Metric(
-        label: region == 'HK' ? '成交额 (HKD)' : '成交额',
+        label: switch (region) {
+          'HK' => '成交额 (HKD)',
+          'US' => '成交额 (USD)',
+          _ => '成交额',
+        },
         value: q.turnover > 0 ? formatCompact(q.turnover) : '--',
       ),
       _Metric(

@@ -1963,6 +1963,84 @@ containing 收盘快照`）；实现后全绿。
 detail/detail-daily 都出现），差异 0.63%–1.54% 且均为角标/页脚文字的局部变化；
 视觉巡检：卡片只剩市场角标（SH/SZ/HK），页脚只剩「新浪财经」，无裁切。
 
+## 二·三十三、美股支持（已完成，2026-11-05）
+
+用户诉求「添加对美股的支持」。与港股批次（二·十五）同思路：先真网探针钉事实，
+再动代码；轮询架构与订阅存档结构尽量不动。用户拍板三项：**完整版**（报价 + 日 K +
+搜索 + 时段）、**默认自选不加美股**（已有设备行为完全不变）、**美股报价备份源砍掉**
+（腾讯 qt.gtimg 不支持美股，唯一备路要动轮询主循环，另开批次）。
+
+### 探针事实链（2026-11-05 实测，探针固化在 `tool/us_live_probe_test.dart`）
+
+| # | 事实 | 证据 |
+| --- | --- | --- |
+| 1 | **新浪报价支持美股**，前缀 `gb_` + 小写代码（`gb_aapl`），**不带**交易所后缀 | `gb_aapl/gb_nvda/gb_baba/gb_pdd/gb_nio/gb_kof` 全部返回完整报文；AAPL 349.51 与腾讯 K 线 qt 块同价 |
+| 2 | **A/H/美股混批一发全回**（`list=sz000651,rt_hk01378,gb_aapl`） | 三行报文一次返回，轮询主循环零改动 |
+| 3 | 新浪**字段表与 A/H 完全不同**：昨收在 `[26]`（`[5]` 是今开！）、涨跌额/幅现成（`[4]/[2]`）、量股额 USD、时间戳**北京时间** | 349.51 − 17.61 = 331.90 = f[26] ✓；额÷量 ≈ 现价 ✓ |
+| 4 | **腾讯 `qt.gtimg.cn` 不支持美股**（整批 US 时 `v_pv_none_match`） | 但**混批里 A/H 照常返回、美股静默缺失**——切到腾讯源时 A/H 不受影响、US 卡降级为停更快照（实测 `q=sz000651,hk01378,usAAPL.OQ`） |
+| 5 | **腾讯 `web.ifzq.gtimg.cn` 日 K 支持美股**，交易所后缀必须有：NASDAQ=`.OQ`、NYSE=`.N` | `usAAPL.OQ` / `usBABA.N` 返回 `day` 键（美股无复权概念，与指数同形状，现有 `qfqday ?? day` 解析天然兼容），量是**股**（89,637,749 ≈ 新浪报价量） |
+| 6 | **新浪 K 线不支持美股**：`symbol=gb_aapl` → `data:null`（同港股） | 美股 K 线只有腾讯一家，无备份（已知限制） |
+| 7 | **东财搜索返回美股**：`Classify=UsStock`、`TypeUS` 枚举 `1`=正股、`3`=ADR（**中概股全在 3**：BABA/PDD/NIO）、`5`=ETF、`6`=债票据、`8`=权证、`9`=单位 | `JYS` 给交易所（NASDAQ/NYSE/AMEX）；搜「苹果/特斯拉/阿里巴巴/拼多多」中文输入即命中 |
+| 8 | **带点/下划线的多类股两家都拿不到数据** | 新浪 `gb_brk_b` 返回**空串**、腾讯 `usBRK.N` 返回空 `day` 数组——搜索侧直接挡掉，宁可搜不到也别搜到没数 |
+
+### 设计决策
+
+| 决策 | 取舍 |
+| --- | --- |
+| 美股 region = `US`（单一市场，不分交易所） | 交易所是**协议细节**不是身份：新浪写法无后缀；放进 region 会让角标/时段/币种全跟着分叉 |
+| `StockConfig` 加可选 `exchange`（NASDAQ/NYSE） | 腾讯写法要按交易所拼后缀（`.OQ`/`.N`）；**不参与身份键与判重**——同一只票 exchange 缺失也应视为同一只；随存档持久化（`e` 键，旧存档无此键照常读回） |
+| 搜索放行判据：`TypeUS ∈ {1,3}` + `JYS ∈ {NASDAQ,NYSE}` + 代码 `^[A-Z]{1,5}$` | ETF/票据/权证（5/6/8/9）行情源未验证；AMEX 后缀没验证过；`BRK_B` 带下划线新浪返回空——三道闸各挡一类「搜到但没数」 |
+| 美股时段 `MarketSession.ofUs`：北京钟 → 美东挂钟（夏令时 −12h / 冬令时 −13h，2007 规则）再判 | **周末必须按美东日历判**：北京周六凌晨是美东周五盘中；换制日 02:00–03:00 的 ±1h 歧义远离 09:30/16:00 边界，对判定无影响 |
+| 分时轴 390 分钟连续、中缝刻度 `12:45`（全程中点）、刻度到 16:00 | 美股无午休；分时时刻是美东挂钟（与 A/H 用本地钟各自自洽） |
+| 详情页成交额标 `(USD)` | 与 HKD 同理：不标会被读成人民币 |
+
+### 改动清单
+
+| 文件 | 改动 |
+| --- | --- |
+| `config/app_config.dart` | `StockConfig` 加 `exchange` 可选字段（US 专用协议细节，key/==/hashCode 不变） |
+| `services/source/sina_source.dart` | `markets` 加 `US`；`wireSymbol` US → `gb_` 小写；`parseBatchQuotes` 加 `gb_` 分支（守卫 ≥31 字段），`_toUsQuote` 按探针字段表解析 |
+| `services/source/tencent_source.dart` | `wireSymbol` US → `us代码.OQ/.N`（exchange 映射，缺省 .OQ 兜底）；`markets` **不含** US（qt.gtimg 不支持，白名单并集仍自动收进 US） |
+| `services/source/tencent_kline.dart` | `_volumeOf`：US 不 ×100（量本来就是股）；dailyUri 注释钉后缀事实 |
+| `services/source/sina_kline.dart` | `supports` 排除 `US`（同 HK，不发注定为空的请求） |
+| `services/source/eastmoney_suggest.dart` | 放行 UsStock：`_usOrNull`（TypeUS/JYS/代码形状三道闸）；A/H 分支重排为 `_aShareOrNull`/`_hkOrNull`/`_usOrNull` 三段 |
+| `services/watchlist_repository.dart` | encode 带 `e` 键（非空才写）；decode 校验 US 形状 + 交易所 ∈ {NASDAQ,NYSE}（缺/非法丢弃）；`isValidCode` 收 1–5 位大写字母；`regionForCode` 对字母返回 null（交易所无法推断，美股只能走搜索） |
+| `utils/market_session.dart` | `MarketSession.ofUs`（DST 折算 + 美东周末）；`ofRegions` 加 US 分支；太极 `_anyLive` 同步（角标/太极自动跟随并集口径） |
+| `widgets/kline_chart.dart` | `tradingMinutesOf/tradingMinute` 加 `us` 参数（390 分钟连续无午休）；刻度 09:30/12:45/16:00（美东挂钟）；`_KlinePainter` 穿 `us` |
+| `widgets/quote_detail_sheet.dart` | 成交额标签 `USD` |
+| `tool/us_live_probe_test.dart` | 探针固化为 6 条真网断言（走解析器，报文变了先红） |
+
+### 已知限制（都写死在代码注释与这里）
+
+1. **美股报价只有新浪一家**（用户拍板砍掉腾讯 ifzq qt 块备路）；新浪挂时 A/H 正常切腾讯、
+   美股卡保持最后快照（腾讯混批实测 A/H 照常、美股静默缺失，不会拖垮整批）；
+2. **美股 K 线只有腾讯一家**（新浪 `gb_` 无数据）；**详情页规则（2026-11-05 用户拍板）：
+   走势不可用就直接不显示**——美股详情页默认打开日 K（唯一稳定可用），「分时」tab
+   不渲染（收盘时段必空，不给注定失败的入口）；日 K 也拿不到时整个走势区块收起，
+   不出「点此重试」占位（那是 A/H 的语义，对「收盘必空」的美股分时只是噪音）；
+   分时的腾讯 minute/query 盘中格式仍待真机自验，验证可用后再考虑放开入口；
+3. **AMEX、优先股、ETF、债票据、权证、多类股（BRK.B / BRK_B）搜不到**——三道闸故意挡的，
+   它们在现有免费源上出不了数；
+4. 手输代码兜底不支持美股（交易所无法从代码推断），美股添加只能走搜索；
+5. 美股法定节假日无交易日历（与 A/H 同一已知限制），节假日会显示「交易中」；
+   夏令时起止日按美东挂钟判定，北京时间 3 月 / 11 月换制日凌晨各有一小时歧义，
+   远离时段边界、无实际影响。
+
+### 先红后绿（决定性证据）
+
+1. 时段：`ofUs` 未实现时 4 条纯函数用例编译红；`ofRegions` 未加 US 分支时
+   「美股并入并集」红（`Expected: preOpen / Actual: trading`——顺带纠正了
+   用例自身的一处前提错误：北京 15:30 港股仍在交易，并集「交易中」才是对的）；
+2. 解析：`gb_` 分支缺失时字段表/混批/守卫 13 处红；`_volumeOf` 未加 US 时
+   日线量红（`Expected: 89637749 / Actual: 8963774900`，与港股接入时同一个坑）；
+3. 搜索：未放行时 AAPL/BABA 解析为空（`Expected: <1> / Actual: <0>`），
+   ETF/AMEX/BRK_B/形状非法 4 条「必须挡住」用例天然绿、实现后仍绿（有分辨力）；
+4. 存档：无 exchange 字段时往返红（`exchange: null`）。
+
+**门禁**：`flutter analyze` 0 issue；`flutter test` **326 全通过**
+（290 + 时段 9 + 新浪/腾讯/存档 17 + 搜索美股 7 + 分时轴 3，剔除 1 条重复计数误差）；
+真网探针 6 条全过（AAPL 349.51 / 5.31% / 89,637,676 股 / 314.41 亿 USD，与腾讯日线同源同值）。
+
 ## 三、跑起来（3 步）
 
 ### 1. 不需要 flutter create

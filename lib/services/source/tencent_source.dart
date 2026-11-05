@@ -43,9 +43,16 @@ class TencentSource implements PollingSource {
 
   /// A 股：`sz000001` / `sh600519`（两市通用写法）。
   /// 港股：`hk00700`（**5 位代码**，前缀 hk）。
-  static String wireSymbol(StockConfig stock) => stock.region == 'HK'
-      ? 'hk${stock.code}'
-      : '${stock.region.toLowerCase()}${stock.code}';
+  /// 美股：`usAAPL.OQ` / `usBABA.N`——**交易所后缀必须有**（2026-11-05
+  /// 实测 fqkline 接口：NASDAQ=`.OQ`、NYSE=`.N`；qt.gtimg.cn 报价端点
+  /// 本身不支持美股，见 markets）。exchange 缺失按 NASDAQ 兜底——搜索侧
+  /// 已保证 US 条目必带交易所，这里只是测试兜底。
+  static String wireSymbol(StockConfig stock) => switch (stock.region) {
+    'HK' => 'hk${stock.code}',
+    'US' => 'us${stock.code.toUpperCase()}'
+        '${stock.exchange == 'NYSE' ? '.N' : '.OQ'}',
+    _ => '${stock.region.toLowerCase()}${stock.code}',
+  };
 
   /// `https://qt.gtimg.cn/q=sz000001,sh600519`
   @override

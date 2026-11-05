@@ -172,20 +172,32 @@ double volumeP95(List<double> volumes) {
 ///
 /// A 股 `09:30–11:30 / 13:00–15:00` = 240；港股 `09:30–12:00 / 13:00–16:00`
 /// = 330。收市竞价（16:00–16:10）不占轴——分时点通常到 16:00 为止。
-int tradingMinutesOf({required bool hk}) => hk ? 330 : 240;
+/// 美股 `09:30–16:00` 连续 = 390，没有午休。
+int tradingMinutesOf({required bool hk, bool us = false}) =>
+    us ? 390 : (hk ? 330 : 240);
 
 /// 分时图的时间轴位置：把两段连续竞价压成 `0..total`。
 ///
 /// 为什么不能按点的序号等距排：上午 10:45 只有 75 个点，按序号排会铺满整张
 /// 图，看上去像「全天已经走完」，而实际上只走了三分之一。午休那 90/60 分钟
 /// 本身不该占宽度，所以两段直接接起来（午休夹在上午收盘那一刻）。
-int tradingMinute(DateTime t, {bool hk = false}) {
+///
+/// 美股没有午休：位置就是「开盘以来的分钟数」，输入是**美东挂钟**
+/// （数据源的分时时刻就是它）。
+int tradingMinute(DateTime t, {bool hk = false, bool us = false}) {
   const int open = 9 * 60 + 30;
+  final int total = tradingMinutesOf(hk: hk, us: us);
+  final int m = t.hour * 60 + t.minute;
+  if (us) {
+    if (m <= open) {
+      return 0;
+    }
+    final int idx = m - open;
+    return idx > total ? total : idx;
+  }
   final int morningEnd = hk ? 12 * 60 : 11 * 60 + 30;
   const int afternoonStart = 13 * 60;
-  final int total = tradingMinutesOf(hk: hk);
   final int morningLen = morningEnd - open; // A 股 120 / 港股 150
-  final int m = t.hour * 60 + t.minute;
   if (m <= open) {
     return 0;
   }
@@ -218,8 +230,8 @@ class KlineChart extends StatelessWidget {
   final List<Kline> bars;
   final List<IntradayPoint> points;
 
-  /// 市场代码（`HK` = 港股）。分时轴的总分钟数与刻度文字按它切换；
-  /// 缺省按 A 股画，已有调用方不必传。
+  /// 市场代码（`HK` = 港股，`US` = 美股）。分时轴的总分钟数与刻度文字按它
+  /// 切换；缺省按 A 股画，已有调用方不必传。
   final String region;
 
   /// 昨收：分时图的基准线，也是涨跌配色的判据
@@ -249,6 +261,7 @@ class KlineChart extends StatelessWidget {
         prevClose: prevClose,
         axisStyle: axisStyle,
         hk: region == 'HK',
+        us: region == 'US',
       ),
     );
 
@@ -285,6 +298,7 @@ class _KlinePainter extends CustomPainter {
     required this.prevClose,
     required this.axisStyle,
     required this.hk,
+    required this.us,
   });
 
   final ChartMode mode;
@@ -298,11 +312,14 @@ class _KlinePainter extends CustomPainter {
   /// 是否港股（分时轴 330 分钟、刻度文字不同）
   final bool hk;
 
+  /// 是否美股（分时轴 390 分钟、连续无午休、刻度到 16:00）
+  final bool us;
+
   /// 量柱满格基准（见 [volumeP95]）。首次 paint 时算一次，之后整 lifetime 复用：
   /// 同一份数据在滚动时会被反复 paint，而 `volumes` 在这些帧之间没有变化。
   double? _volP95;
 
-  int get _minutes => tradingMinutesOf(hk: hk);
+  int get _minutes => tradingMinutesOf(hk: hk, us: us);
 
   /// 右侧价格刻度留白。画在图里会压住最后一根蜡烛/线的尾巴，所以留出来。
   static const double _gutter = 46;
@@ -373,7 +390,7 @@ class _KlinePainter extends CustomPainter {
     }
 
     double x(DateTime t) {
-      final double r = tradingMinute(t, hk: hk) / _minutes;
+      final double r = tradingMinute(t, hk: hk, us: us) / _minutes;
       return r * price.width;
     }
 
@@ -490,7 +507,7 @@ class _KlinePainter extends CustomPainter {
       // x 用与折线同一套 tradingMinute（按时刻），而不是数组序号：
       // 点序列一旦不连续（缺成交分钟、港股收市竞价的尾部点），序号定位
       // 会和折线错位、甚至越界画进右侧刻度留白
-      (int i) => tradingMinute(pts[i].time, hk: hk) / _minutes * vol.width,
+      (int i) => tradingMinute(pts[i].time, hk: hk, us: us) / _minutes * vol.width,
       vol.width / _minutes,
       (int i) => lineColor,
       // 渐变把柱底压到 45%，整体观感约等于原来的 0.7 倍。0.34 直接照搬会
@@ -502,7 +519,7 @@ class _KlinePainter extends CustomPainter {
     _priceLabel(canvas, price, size, base + span, price.top);
     _priceLabel(canvas, price, size, base, baseY);
     _priceLabel(canvas, price, size, base - span, price.bottom);
-    _timeLabels(canvas, size, vol.bottom, plotWidth: price.width, hk: hk);
+    _timeLabels(canvas, size, vol.bottom, plotWidth: price.width, hk: hk, us: us);
   }
 
   // ==================== 日 K ====================
@@ -784,15 +801,22 @@ class _KlinePainter extends CustomPainter {
   ///
   /// 中间那个刻度写「11:30/13:00」而不是两个独立刻度——午休不占宽度，
   /// 两段是连续画在一起的，分开标会让人以为中间漏了一段。
+  /// 美股连续无午休，中缝就是全程中点 12:45；刻度是**美东挂钟**
+  /// （数据源的分时时刻就是它，与 A/H 用本地钟的口径各自自洽）。
   void _timeLabels(
     Canvas canvas,
     Size size,
     double top, {
     required double plotWidth,
     required bool hk,
+    required bool us,
   }) {
     _text(canvas, '09:30', Offset(0, top + 1), GlassPalette.inkSoft);
-    final String mid = hk ? '12:00/13:00' : '11:30/13:00';
+    final String mid = us
+        ? '12:45'
+        : hk
+        ? '12:00/13:00'
+        : '11:30/13:00';
     final double midW = _measureWidth(mid, GlassPalette.inkSoft);
     _text(
       canvas,
@@ -800,7 +824,7 @@ class _KlinePainter extends CustomPainter {
       Offset(plotWidth / 2 - midW / 2, top + 1),
       GlassPalette.inkSoft,
     );
-    final String end = hk ? '16:00' : '15:00';
+    final String end = us || hk ? '16:00' : '15:00';
     final double endW = _measureWidth(end, GlassPalette.inkSoft);
     _text(
       canvas,

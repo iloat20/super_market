@@ -55,6 +55,75 @@ void main() {
     });
   });
 
+  group('MarketSession.ofUs 美股（美东挂钟 / 夏令时）', () {
+    // 2025-11-03（周一）在冬令时（11 月第一个周日 11-02 已切换）：北京 = ET + 13
+    // 2026-03-09（周一）在夏令时（3 月第二个周日 03-08 已切换）：北京 = ET + 12
+    test('冬令时：北京 22:30 开盘，次日 05:00 收盘', () {
+      expect(
+        MarketSession.ofUs(DateTime(2025, 11, 3, 20, 0)),
+        MarketSession.preOpen,
+        reason: 'ET 07:00',
+      );
+      expect(
+        MarketSession.ofUs(DateTime(2025, 11, 3, 21, 30)),
+        MarketSession.preOpen,
+        reason: 'ET 08:30，还差一分钟开盘',
+      );
+      expect(
+        MarketSession.ofUs(DateTime(2025, 11, 3, 22, 30)),
+        MarketSession.trading,
+        reason: 'ET 09:30',
+      );
+      expect(
+        MarketSession.ofUs(DateTime(2025, 11, 4, 4, 59)),
+        MarketSession.trading,
+        reason: '北京周二凌晨 = ET 周一 15:59',
+      );
+      expect(
+        MarketSession.ofUs(DateTime(2025, 11, 4, 5, 0)),
+        MarketSession.closed,
+        reason: 'ET 16:00 收盘',
+      );
+      expect(MarketSession.ofUs(DateTime(2025, 11, 4, 10, 0)), MarketSession.closed);
+    });
+
+    test('夏令时：北京 21:30 开盘，次日 04:00 收盘', () {
+      expect(
+        MarketSession.ofUs(DateTime(2026, 3, 9, 20, 0)),
+        MarketSession.preOpen,
+        reason: 'ET 08:00',
+      );
+      expect(
+        MarketSession.ofUs(DateTime(2026, 3, 9, 21, 30)),
+        MarketSession.trading,
+        reason: 'ET 09:30（EDT，比冬令时早一小时）',
+      );
+      expect(MarketSession.ofUs(DateTime(2026, 3, 10, 3, 59)), MarketSession.trading);
+      expect(
+        MarketSession.ofUs(DateTime(2026, 3, 10, 4, 0)),
+        MarketSession.closed,
+        reason: 'ET 16:00 收盘',
+      );
+    });
+
+    test('周末看美东日历：北京周六凌晨美股周五还在交易', () {
+      // 北京 2025-11-08（周六）03:00 = ET 周五 14:00（冬令时）→ 交易中
+      expect(MarketSession.ofUs(DateTime(2025, 11, 8, 3, 0)), MarketSession.trading);
+      // 北京周六 10:00 = ET 周五 21:00 → 已收盘（不是「休市」：ET 还是工作日）
+      expect(MarketSession.ofUs(DateTime(2025, 11, 8, 10, 0)), MarketSession.closed);
+      // 北京周日 21:00 = ET 周日 08:00 → 休市
+      expect(MarketSession.ofUs(DateTime(2025, 11, 9, 21, 0)), MarketSession.weekend);
+    });
+
+    test('美股没有集合竞价与午休：这两个状态不该出现', () {
+      for (final int h in <int>[0, 6, 9, 12, 15, 18, 21, 23]) {
+        final MarketSession s = MarketSession.ofUs(DateTime(2025, 11, 3, h, 0));
+        expect(s, isNot(MarketSession.callAuction), reason: '$h:00 → $s');
+        expect(s, isNot(MarketSession.lunchBreak), reason: '$h:00 → $s');
+      }
+    });
+  });
+
   group('MarketSession.ofRegions 订阅市场并集', () {
     const List<String> a = <String>['SH', 'SZ'];
     const List<String> hk = <String>['HK'];
@@ -117,6 +186,35 @@ void main() {
       expect(
         MarketSession.ofRegions(monday(15, 30), const <String>[]),
         MarketSession.closed,
+      );
+    });
+
+    test('美股并入并集：A/H 收盘后由美股接力', () {
+      // 2025-11-03（周一）冬令时：
+      const List<String> all3 = <String>['SZ', 'HK', 'US'];
+      expect(
+        MarketSession.ofRegions(DateTime(2025, 11, 3, 15, 30), all3),
+        MarketSession.trading,
+        reason: '港股 15:30 还在交易（到 16:10）',
+      );
+      expect(
+        MarketSession.ofRegions(DateTime(2025, 11, 3, 16, 30), all3),
+        MarketSession.preOpen,
+        reason: 'A/H 已收盘、美股 ET 03:30 未开盘',
+      );
+      expect(
+        MarketSession.ofRegions(DateTime(2025, 11, 3, 22, 30), all3),
+        MarketSession.trading,
+        reason: 'A/H 已收盘、美股盘中接力',
+      );
+      // 只有美股订阅时完全按美股口径
+      expect(
+        MarketSession.ofRegions(DateTime(2025, 11, 3, 22, 30), const <String>['US']),
+        MarketSession.trading,
+      );
+      expect(
+        MarketSession.ofRegions(DateTime(2025, 11, 3, 16, 30), const <String>['US']),
+        MarketSession.preOpen,
       );
     });
   });

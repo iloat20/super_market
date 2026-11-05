@@ -37,6 +37,11 @@ class TencentKline implements KlineSource {
   ///
   /// 参数是**位置式**的（逗号分隔，空段不能省）：`代码,周期,起,止,根数,复权`。
   /// `qfq` = 前复权。空的那两段是开始/结束日期，留给服务端默认。
+  ///
+  /// 美股（2026-11-05 实测）：`param=usAAPL.OQ,day,,,80,qfq` 照常返回，
+  /// 交易所后缀必须有（NASDAQ=`.OQ`、NYSE=`.N`，见 [TencentSource.wireSymbol]）；
+  /// 美股没有 A 股的复权概念，返回的 key 是 `day`（与指数同形状），
+  /// 下面的解析本来就两个键都试，不用分支。
   @override
   Uri dailyUri(StockConfig stock, int count) => Uri.https(
     'web.ifzq.gtimg.cn',
@@ -248,9 +253,12 @@ class TencentKline implements KlineSource {
     return DateTime(base.year, base.month, base.day, h, m);
   }
 
-  /// 成交量按市场换算：A 股手 → 股（×100），港股本来就是股。
+  /// 成交量按市场换算：A 股手 → 股（×100）；港股、美股本来就是股。
+  ///
+  /// 美股实测（2026-11-05 usAAPL.OQ）：末根量 89637749 ≈ 新浪报价量
+  /// 89637676（同一成交量级），且 转手率口径一致——不 ×100。
   static double _volumeOf(double raw, StockConfig stock) =>
-      stock.region == 'HK' ? raw : raw * 100;
+      stock.region == 'HK' || stock.region == 'US' ? raw : raw * 100;
 
   static double? _num(Object? raw) {
     if (raw is num) {

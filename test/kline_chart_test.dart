@@ -200,4 +200,33 @@ void main() {
       expect(tradingMinute(at(15, 30)), 240);
     });
   });
+
+  group('tradingMinute(us:true)：美股分时横轴（美东挂钟，无午休）', () {
+    DateTime at(int h, int m) => DateTime(2026, 11, 4, h, m); // 周三
+
+    test('总分钟数 390（09:30–16:00 连续）', () {
+      expect(tradingMinutesOf(hk: false, us: true), 390);
+    });
+
+    test('开盘 0、盘中线性推进、收盘 390', () {
+      expect(tradingMinute(at(9, 30), us: true), 0);
+      expect(tradingMinute(at(10, 30), us: true), 60);
+      expect(
+        tradingMinute(at(12, 45), us: true),
+        195,
+        reason: '全程中点，时间轴中缝刻度就写它',
+      );
+      expect(tradingMinute(at(16, 0), us: true), 390);
+    });
+
+    test('没有午休：12:00 连续推进而不是夹在 120', () {
+      expect(tradingMinute(at(12, 0), us: true), 150);
+      expect(tradingMinute(at(12, 59), us: true), 209);
+    });
+
+    test('盘前/盘后夹到两端', () {
+      expect(tradingMinute(at(9, 0), us: true), 0);
+      expect(tradingMinute(at(20, 0), us: true), 390);
+    });
+  });
 }

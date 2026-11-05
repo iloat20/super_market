@@ -1,7 +1,7 @@
 name: super_market
 description: "A 股实时行情（个人自用，新浪/腾讯公开源轮询，仅前台盯盘）"
 publish_to: 'none'
-version: 1.0.1+29
+version: 1.0.7+35
 
 environment:
   # 收紧到实际用到的最低 Dart。原来写 `>=3.4.0`（对应 Flutter 3.22），

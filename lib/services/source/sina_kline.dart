@@ -72,8 +72,11 @@ class SinaKline implements KlineSource {
   /// 新浪的 K 线接口**只覆盖沪深**：`symbol=hk00700` 实测返回
   /// `{"result":{"data":null}}`（2026-11-03），港股直接跳过本源，
   /// 不浪费一次注定为空的外网请求。
+  /// 美股同样不支持：`symbol=gb_aapl` 也是 `data:null`（2026-11-05 实测），
+  /// 美股 K 线只有腾讯一家——这是已知限制，写进了 README。
   @override
-  bool supports(StockConfig stock) => stock.region != 'HK';
+  bool supports(StockConfig stock) =>
+      stock.region != 'HK' && stock.region != 'US';
 
   /// `{"result":{"status":{"code":0},"status"…,"data":[{"day":"2026-11-02",
   ///   "open":"1410.000","high":"1447.000","low":"1395.020","close":"1439.100",
