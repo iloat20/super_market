@@ -120,7 +120,7 @@ super_market/
 ├── pubspec.yaml
 ├── pubspec.lock
 ├── analysis_options.yaml
-├── android/                            # 已生成的 Android 工程（含 INTERNET 权限、release 用 debug 签名）
+├── android/                            # 已生成的 Android 工程（含 INTERNET 权限；release 签名走 keystore.properties，缺失时回退 debug）
 ├── test/
 │   ├── smoke_test.dart                 # 局部刷新 / 列表渲染 / 详情弹层
 │   ├── quote_parser_test.dart          # 字段映射、交易状态、退避序列
@@ -2521,8 +2521,10 @@ Dart 的 AOT 编译从 `main()` 做**全程序树摇**：没被任何可达路�
 > 同名资源冲成玻璃图标。同理，更早的 `tool/icon/gen_icon.py` 也已删除。
 > **图标资源现在只有一套：`res/` 里的矢量和五张 PNG，没有生成脚本。**
 
-release 包目前沿用 Flutter 默认的 debug 签名（`android/app/build.gradle.kts` 里 `signingConfig = debug`），
-个人自用足够；要正式分发请自行生成 keystore 替换，别把 debug 签名包传到公开渠道。
+release 已用**正式密钥签名**（2026-11-05 生成）：`android/keystore.properties` 指向
+`android/keystore/supermarket-release.jks`（RSA 2048 / PKCS12 / 30 年有效期，alias `supermarket`）。
+两个文件都被 `.gitignore` 排除，**不在仓库里**——keystore 和密码就是应用的身份，丢了就无法再以
+同一签名发版，务必本地另行备份（换电脑、换盘都要带着）。密钥缺失时构建自动回退 debug 签名。
 
 > 首次构建要从 Maven/Gradle 源下载 AGP、Kotlin、R8 等依赖（数百 MB）。
 > **本项目已在 `android/settings.gradle.kts` 与 `android/build.gradle.kts` 里把阿里云镜像放在最前面**
