@@ -43,10 +43,8 @@
 /// `flutter test --exclude-tags preview` 跳过它、覆盖其余全部逻辑测试。
 /// 要做到跨机确定性 golden，需要仓库内置 OFL 中文字体并重生成基线
 ///（会改变基线像素，属视觉决策，未拍板前不做）。
-library;
-
 @Tags(<String>['preview'])
-import 'package:flutter_test/flutter_test.dart';
+library;
 
 import 'dart:io';
 import 'dart:math' as math;
