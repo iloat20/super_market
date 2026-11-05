@@ -10,7 +10,7 @@
 set -u
 
 ADB="${ADB:-/c/Android/sdk/platform-tools/adb.exe}"
-PKG="${PKG:-com.example.super_market}"
+PKG="${PKG:-supermarket.app}"
 ACT="$PKG/.MainActivity"
 APK="build/app/outputs/flutter-apk/app-release.apk"
 

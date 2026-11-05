@@ -28,9 +28,10 @@ cd "$(dirname "$0")/.."
 
 ADB="${ADB:-adb}"
 DART="${DART:-dart}"
-PKG=com.example.super_market
-APK=build/app/outputs/flutter-apk/app-profile.apk
-BUILD=profile
+PKG=supermarket.app
+BUILD="${BUILD:-profile}"
+APK="build/app/outputs/flutter-apk/app-${BUILD}.apk"
+
 SCENARIO="${SCENARIO:-scroll-3stocks}"
 
 if ! "$ADB" get-state >/dev/null 2>&1; then
