@@ -156,6 +156,10 @@ Future<HttpRawResponse> defaultHttpGetBytes(
 
     final List<int> bytes = <int>[];
     bool truncated = false;
+    // ⚠️ C-04（review-2026-11-05）：`Stream.timeout` 的语义是「相邻事件的
+    // 间隔」超时，不是整次读取的截止时间——慢滴流理论上可以一直拖到
+    // _maxRawBytes 上限才停。接受现状：轮询层单飞 + 体积上限 + 失败重试
+    // 已经兜底，整体 deadline 的收益抵不上「误杀慢正常响应」的代价。
     await for (final List<int> chunk in res.timeout(AppConfig.restTimeout)) {
       bytes.addAll(chunk);
       if (bytes.length > _maxRawBytes) {

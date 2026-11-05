@@ -260,9 +260,23 @@ bool shouldApplyQuote(Quote current, Quote incoming) {
     return true;
   }
   if (theirs.isAtSameMomentAs(mine)) {
-    // 同一时刻：实时推送比快照可信
-    return incoming.source == QuoteSource.socket &&
-        current.source == QuoteSource.snapshot;
+    // 同一时刻：实时推送比快照可信（快照覆盖实时 = 价格倒退）
+    if (incoming.source == QuoteSource.socket &&
+        current.source == QuoteSource.snapshot) {
+      return true;
+    }
+    // 反向同理：快照不能倒灌进实时价
+    if (incoming.source == QuoteSource.snapshot &&
+        current.source == QuoteSource.socket) {
+      return false;
+    }
+    // C-01（review-2026-11-05）：同源同刻的第二笔不同价是更晚的成交，
+    // 不是重放——时间戳粒度是秒，只按来源裁决会把「同为 socket 的第二笔
+    // 新价」丢掉，价格最多滞后一个轮询周期。完全相同的帧在 Quote.==
+    // 处拦下，不触发无谓重建。
+    // 注：feed 层另有 _lastQuoteMs 的「更旧直接丢」守卫，跨源时钟偏斜
+    // 造成的倒退在那里已经挡掉，这里放行的同刻帧不会把价格带回过去。
+    return incoming != current;
   }
   return false;
 }

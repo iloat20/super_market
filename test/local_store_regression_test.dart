@@ -66,6 +66,24 @@ void main() {
       await a.write('k', 'A');
       expect(await b.read('k'), isNull);
     });
+
+    // C-02（review-2026-11-05）：池 key 曾用 identityHashCode(provider)。
+    // 默认路径的 provider 是每次 factory 求值都新建的顶层函数 tear-off，
+    // 池是否命中曾依赖「VM 对 tear-off 的 identical 规范化」——2026-11-05
+    // 探针实测成立，但语言规范只保证「相等对象必有相等 hashCode」。
+    // key 改用 provider.hashCode（== 语义）后由规范保证。
+    // 注意：本用例在修复前也是绿的（这台 VM 恰好会规范化），它是防止
+    // 将来工具链行为变化的守卫，不是行为修复，因此没有红态可留。
+    // 只构造不读写：read/write 会触发 path_provider 平台通道，纯 Dart 测试里没有。
+    test('无参（默认路径）构造两次返回同一实例（C-02 守卫）', () {
+      final FileKeyValueStore a = FileKeyValueStore();
+      final FileKeyValueStore b = FileKeyValueStore();
+      expect(
+        identical(a, b),
+        isTrue,
+        reason: '默认构造共享同一实例；两份缓存互相抹 key 是 R-02 的原始事故',
+      );
+    });
   });
 
   group('损坏存档与原子写（R-03）', () {
@@ -101,6 +119,32 @@ void main() {
             ),
         isEmpty,
         reason: '原子写走临时文件 + rename，成功后不得残留 .tmp',
+      );
+    });
+
+    // C-03（review-2026-11-05）：.tmp 路径固定，两个 write 并发时一方
+    // rename 会失败、这批 Future 带着异常爆掉（内存缓存仍在所以读不受影响，
+    // 但「这次落盘」丢了，要等下一次写才能补上）。修复：同一实例的落盘
+    // 用 Future 链排队串行。
+    test('并发写不互相打断（.tmp 竞态）', () async {
+      final FileKeyValueStore store = FileKeyValueStore(
+        directoryProvider: _provider(tempDir),
+        fileName: 'concurrent.json',
+      );
+      final List<Future<void>> writes = <Future<void>>[
+        for (int i = 0; i < 64; i++) store.write('k$i', 'v$i'),
+      ];
+      await Future.wait(writes);
+
+      for (int i = 0; i < 64; i++) {
+        expect(await store.read('k$i'), 'v$i');
+      }
+      expect(
+        tempDir.listSync().whereType<File>().map((File f) => f.path).where(
+              (String p) => p.endsWith('.tmp'),
+            ),
+        isEmpty,
+        reason: '串行化之后不应残留半截的 .tmp',
       );
     });
   });

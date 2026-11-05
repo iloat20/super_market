@@ -1,0 +1,39 @@
+# 门禁自动化（review-2026-11-05 路线图「长期」项）：
+# 与本地门禁完全同源——analyze 0 issues + flutter test 全绿。
+#
+# 为什么只跑这两步、不跑打包：verify_apk 需要签名密钥与完整 Android SDK，
+# 且打包产物只在装机前有意义；CI 的价值是把「代码级门禁」挡在 push/PR 上。
+#
+# golden 说明：goldens 由 flutter_tester 生成，字体统一落在 Ahem，
+# 跨 OS 渲染是确定性的——Windows 本地生成、Linux CI 比对应当逐字节一致；
+# 若 CI 端 golden 失败而本地绿，先怀疑 runner 版本而非图像。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本钉死与本机一致（flutter --version：3.47.9 stable），
+      # 升级 Flutter 必须显式改这里——跟着 latest 漂会让 CI 与本地门禁说两套话
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.9
+          channel: stable
+          cache: true
+
+      - run: flutter --version
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

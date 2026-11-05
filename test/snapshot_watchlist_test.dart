@@ -123,6 +123,54 @@ void main() {
       expect(shouldApplyQuote(live, snap), isFalse);
     });
 
+    // C-01（review-2026-11-05）：时间戳粒度是秒，同一秒内可能出现第二笔
+    // 不同价的报文。原同刻分支只按「来源可信度」裁决（socket>snapshot），
+    // 同为 socket 的第二笔会被当成重放丢掉——价格最多滞后一个轮询周期。
+    // 内容变了就不是重放。
+    test('同一秒内的第二笔不同价（同为实时链路）→ 内容变了就接受', () {
+      final Quote first = Quote(
+        code: '000001',
+        region: 'SZ',
+        price: 11.55,
+        change: 0.01,
+        changePercent: 0.09,
+        timestamp: t1500,
+      );
+      final Quote second = Quote(
+        code: '000001',
+        region: 'SZ',
+        price: 11.57,
+        change: 0.03,
+        changePercent: 0.26,
+        timestamp: t1500,
+      );
+      expect(
+        shouldApplyQuote(first, second),
+        isTrue,
+        reason: '同秒第二笔不同价是更晚的成交，不是重放',
+      );
+    });
+
+    test('同一时刻同内容重放帧仍然拒绝（不触发无谓重建）', () {
+      final Quote first = Quote(
+        code: '000001',
+        region: 'SZ',
+        price: 11.55,
+        change: 0.01,
+        changePercent: 0.09,
+        timestamp: t1500,
+      );
+      final Quote replay = Quote(
+        code: '000001',
+        region: 'SZ',
+        price: 11.55,
+        change: 0.01,
+        changePercent: 0.09,
+        timestamp: t1500,
+      );
+      expect(shouldApplyQuote(first, replay), isFalse);
+    });
+
     test('没有价格的行情永远不覆盖已有数据', () {
       final Quote live = Quote(
         code: '000001',

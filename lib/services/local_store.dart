@@ -67,7 +67,13 @@ class FileKeyValueStore implements KeyValueStore {
     final Future<Directory> Function() provider =
         directoryProvider ?? getApplicationSupportDirectory;
     final String name = fileName ?? '${QuoteFeeds.id}_state.json';
-    final String key = '${identityHashCode(provider)}|$name';
+    // C-02（review-2026-11-05）：池 key 用 provider.hashCode（== 语义），
+    // 不用 identityHashCode。默认路径的 provider 是每次 factory 求值都新建
+    // 的顶层函数 tear-off，「相等对象必有相等 hashCode」是语言规范的保证；
+    // 而 identical 只是 VM 的实现细节（2026-11-05 探针实测 VM 会规范化
+    // tear-off，但规范不承诺）。改后池对默认构造路径的共享从「依赖实现」
+    // 变成「依赖规范」。
+    final String key = '${provider.hashCode}|$name';
     return _instances[key] ??= FileKeyValueStore._(
       directoryProvider: provider,
       fileName: name,
@@ -95,6 +101,18 @@ class FileKeyValueStore implements KeyValueStore {
   Map<String, String>? _cache;
   Future<File>? _fileFuture;
 
+  /// 首读单飞（C-03 前半）：并发首读在途时的共享 Future。
+  Future<Map<String, String>>? _loading;
+
+  /// 落盘队列（C-03 后半）：同一实例的落盘严格串行。
+  ///
+  /// `.tmp` 路径是固定的（`<file>.tmp`），两个 write 并发时一旦交错
+  /// （A 写 tmp → A rename → B 写 tmp → B rename），B 的 rename 会因 tmp
+  /// 已被 A 搬走而抛 FileSystemException——那次落盘就丢了（内存缓存
+  /// 不受影响，但要等下一次成功写盘才补上）。排队后互不干扰；排到后面的
+  /// 成员总是把**当时最新的** `_cache` 全量写下去，天然把前面的变更一起带上。
+  Future<void> _writeQueue = Future<void>.value();
+
   Future<File> _file() =>
       _fileFuture ??= _directoryProvider().then((Directory dir) async {
         await dir.create(recursive: true);
@@ -106,6 +124,24 @@ class FileKeyValueStore implements KeyValueStore {
     if (cached != null) {
       return cached;
     }
+    // C-03 前半：首读必须单飞。并发首读时每个调用方各自读盘、各自赋
+    // _cache，拿到的是**不同的 map 实例**——后完成者覆盖先完成者，
+    // 先到的调用方拿着被丢弃的旧实例改 key，改动永远进不了 _cache
+    // （64 路并发写实测丢掉第一笔，read 返回 null）。单飞后所有调用方
+    // 共享同一次读盘的同一个实例。
+    final Future<Map<String, String>>? inFlight = _loading;
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final Future<Map<String, String>> future = _loadFromDisk();
+    _loading = future;
+    return future.whenComplete(() {
+      // 成败都清场：成功后走 _cache 快路径；失败允许下一个调用方重试
+      _loading = null;
+    });
+  }
+
+  Future<Map<String, String>> _loadFromDisk() async {
     final File file = await _file();
     Map<String, String> data = <String, String>{};
     try {
@@ -161,7 +197,17 @@ class FileKeyValueStore implements KeyValueStore {
   Future<void> write(String key, String value) async {
     final Map<String, String> data = await _load();
     data[key] = value;
-    await _writeAll(data);
+    await _enqueueWrite();
+  }
+
+  /// 把一次全量落盘排进队列；返回的 Future 在**这一次落盘**完成时完成。
+  ///
+  /// 队列成员失败（磁盘错误）时：调用方拿到的 Future 照常抛（`save` 的
+  /// catch 会记日志），队列本身吞掉失败继续走——坏一次不能堵死后面所有写。
+  Future<void> _enqueueWrite() {
+    final Future<void> run = _writeQueue.then<void>((_) => _writeAll(_cache!));
+    _writeQueue = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
   }
 
   @override
@@ -170,6 +216,6 @@ class FileKeyValueStore implements KeyValueStore {
     if (data.remove(key) == null) {
       return;
     }
-    await _writeAll(data);
+    await _enqueueWrite();
   }
 }
