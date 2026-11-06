@@ -2,8 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:super_market/widgets/glass.dart';
-
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/services/kline_loader.dart';
@@ -14,9 +13,12 @@ import 'package:super_market/widgets/quote_detail_sheet.dart';
 /// 详情弹层的**绘制分层**：玻璃不参与跳价重建，内容自带图层，静态的日 K
 /// 不被"只有成交额变了"的报文重新栅格化。
 ///
-/// 这三条和 `test/paint_isolation_test.dart` 对列表卡片守的是同一组不变量，
-/// 只是对象换成了弹层。为什么必须是断言而不是注释：列表侧那条已经是靠测试
-/// 守住的，弹层侧一旦回退，表现只是"每 3 秒卡一下"，肉眼很难归因。
+/// 和 `test/paint_isolation_test.dart` 对列表卡片守的是同一组不变量。
+/// v15 起详情弹层的玻璃从自绘 `GlassPanel` 换成 `GlassContainer.card`
+/// + `kGlassSurface` premium，断言对象也跟着换成 `GlassContainer`：
+/// 守的是「玻璃在监听器外面 / 内容不是玻璃子节点 / 内容自带
+/// RepaintBoundary」这条**结构**，不是某个具体 Widget 类名。
+/// 为什么必须是断言：一旦回退，表现只是"每 3 秒卡一下"，肉眼很难归因。
 
 const StockConfig _maotai = StockConfig(
   code: '600519',
@@ -60,27 +62,6 @@ Quote _quote({double turnover = 3658010435}) => Quote(
   timestamp: DateTime(2026, 11, 3, 10, 45),
 );
 
-/// 内容到最近的 `BackdropFilter` 之间是否存在 `RepaintBoundary`。
-///
-/// 只看 `find.descendant` 是不够的：图里任意一层（比如日 K）自带边界就会
-/// 让断言假绿。这里沿元素树往上走，把"路径上确实隔了一层"作为判据。
-bool _hasLayerBeforeBackdrop(WidgetTester tester, Finder content) {
-  bool sawBoundary = false;
-  bool reachedBackdrop = false;
-  tester.element(content).visitAncestorElements((Element ancestor) {
-    final Widget widget = ancestor.widget;
-    if (widget is BackdropFilter) {
-      reachedBackdrop = true;
-      return false; // 停止上溯
-    }
-    if (widget is RepaintBoundary) {
-      sawBoundary = true;
-    }
-    return true;
-  });
-  return reachedBackdrop && sawBoundary;
-}
-
 Future<ValueNotifier<Quote>> _openSheet(WidgetTester tester) async {
   final ValueNotifier<Quote> notifier = ValueNotifier<Quote>(_quote());
   addTearDown(notifier.dispose);
@@ -110,30 +91,42 @@ Future<ValueNotifier<Quote>> _openSheet(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('跳价不重建玻璃，内容与 BackdropFilter 之间必须有独立图层', (
+  testWidgets('跳价不重建玻璃，内容不是玻璃子节点且自带独立图层', (
     WidgetTester tester,
   ) async {
     final ValueNotifier<Quote> notifier = await _openSheet(tester);
 
-    final GlassPanel before = tester.widget<GlassPanel>(find.byType(GlassPanel));
+    final Finder glass = find.byType(GlassContainer);
+    expect(
+      glass,
+      findsOneWidget,
+      reason: '详情弹层的玻璃背景层必须是 GlassContainer.card（v15）',
+    );
+    final GlassContainer before = tester.widget<GlassContainer>(glass);
 
     // 只有成交额变了：界面上看起来什么都没动
     notifier.value = _quote(turnover: 9999999999);
     await tester.pump();
 
-    final GlassPanel after = tester.widget<GlassPanel>(find.byType(GlassPanel));
+    final GlassContainer after = tester.widget<GlassContainer>(glass);
     expect(
       identical(before, after),
       isTrue,
-      reason: '玻璃必须在监听器外面：否则每 3 秒一次跳价都会重建 sigma=18 的'
-          'BackdropFilter 面板（与 quote_tile.dart 里已修正的做法对齐）',
+      reason: '玻璃必须在监听器外面：否则每 3 秒一次跳价都会重建 premium '
+          '玻璃的背景捕获与折射着色（与 quote_tile.dart 的做法对齐）',
     );
 
+    final Finder content = find.text('今开');
     expect(
-      _hasLayerBeforeBackdrop(tester, find.text('今开')),
-      isTrue,
-      reason: '弹层内容是 BackdropFilter 的子节点且没有独立图层时，内容一变就要'
-          '重跑一次面板级模糊；中间必须隔一层 RepaintBoundary',
+      find.ancestor(of: content, matching: glass),
+      findsNothing,
+      reason: '内容画进玻璃子树 = 每次跳价都要重跑背景捕获与折射着色；'
+          'v15 的 Stack 分层要求两者平级',
+    );
+    expect(
+      find.ancestor(of: content, matching: find.byType(RepaintBoundary)),
+      findsWidgets,
+      reason: '内容层需要自己的 RepaintBoundary，跳价才只重绘文字层',
     );
 
     await tester.pumpWidget(const SizedBox.shrink());

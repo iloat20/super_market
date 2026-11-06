@@ -2,11 +2,11 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/services/kline_loader.dart';
 import 'package:super_market/services/rest_client.dart';
-import 'package:super_market/widgets/glass.dart';
 import 'package:super_market/widgets/quote_detail_sheet.dart';
 
 /// 详情弹层「滚动时的头部表现」。
@@ -16,7 +16,9 @@ import 'package:super_market/widgets/quote_detail_sheet.dart';
 /// 既读不出「这是一块有顶边的玻璃」，也没有 iOS 那种内容从栏下滑过的层次。
 ///
 /// 这两条断言同时守住性能：静止时**不能多画任何一层**（golden 必须零变化），
-/// 滚动时玻璃面板本身不能被重建（否则每帧重跑一次 sigma=18 的模糊）。
+/// 滚动时玻璃背景层不能被重建（否则每帧重跑一次背景捕获与折射着色）。
+/// v15 起详情弹层的玻璃是 `GlassContainer.card` + premium 着色器，
+/// 断言对象随之从自绘 `GlassPanel` 换成 `GlassContainer`。
 const StockConfig _maotai = StockConfig(
   code: '600519',
   name: '贵州茅台',
@@ -94,9 +96,13 @@ void main() {
           'golden 会无端变化',
     );
 
-    final GlassPanel panelBefore = tester.widget<GlassPanel>(
-      find.byType(GlassPanel),
+    final Finder glass = find.byType(GlassContainer);
+    expect(
+      glass,
+      findsOneWidget,
+      reason: '详情弹层的玻璃背景层必须是 GlassContainer.card（v15）',
     );
+    final GlassContainer glassBefore = tester.widget<GlassContainer>(glass);
     final double beforeY = tester.getTopLeft(find.text('今开')).dy;
 
     await tester.drag(
@@ -118,14 +124,11 @@ void main() {
           '把「栏」和「可滚动内容」分开',
     );
     expect(
-      identical(
-        panelBefore,
-        tester.widget<GlassPanel>(find.byType(GlassPanel)),
-      ),
+      identical(glassBefore, tester.widget<GlassContainer>(glass)),
       isTrue,
       reason:
-          '滚动只该重建隔离层里的一小条 overlay；'
-          '若 GlassPanel 被重建，每帧都要重跑一次 sigma=18 的全面板模糊',
+          '滚动只该重建隔离层里的一小条磨砂带；'
+          '若玻璃背景层被重建，每帧都要重跑一次背景捕获与折射着色',
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
