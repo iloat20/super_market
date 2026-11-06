@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../config/app_config.dart';
 import '../services/symbol_directory.dart';
@@ -328,123 +329,148 @@ class _WatchlistSheetState extends State<_WatchlistSheet> {
         constraints: BoxConstraints(
           maxHeight: MediaQuery.sizeOf(context).height * 0.82,
         ),
-        child: GlassPanel(
-          radius: 28,
-          blur: 28,
-          padding: EdgeInsets.zero,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+        // 玻璃是**背景层**，内容与它平级（quote_tile.dart 的同一条结构约束）：
+        // 内容一重绘（打字、搜索结果变化）不会把 premium 玻璃的背景捕获
+        // 与折射着色拖下水。v19 起底色膜与玻璃色都取
+        // GlassPalette.background，和详情弹层同一个色号。
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: Stack(
             children: <Widget>[
-              const SizedBox(height: 8),
-              const _SheetHandle(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 10, 12, 4),
-                child: Row(
+              // v19：93% 底色膜，与详情弹层一致。压住背后的列表文字，
+              // 也给 premium 着色器一个可控的底色；只换 kSheetGlassSurface
+              // 的 76% glassColor 挡不住内容，两处要一起接背景令牌。
+              Positioned.fill(
+                child: ColoredBox(
+                  color: GlassPalette.background.withValues(alpha: 0.93),
+                ),
+              ),
+              Positioned.fill(
+                child: GlassContainer(
+                  useOwnLayer: true,
+                  quality: GlassQuality.premium,
+                  shape: LiquidRoundedRectangle(borderRadius: 28),
+                  settings: kSheetGlassSurface,
+                  child: SizedBox.shrink(),
+                ),
+              ),
+              RepaintBoundary(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    // 标题和配额胶囊成组靠左，「完成」靠右。1.0x 下 Wrap 只排
-                    // 一行、间距同为 8px，位置与原来的 Row + Spacer 逐像素一致；
-                    // 3.0x 下胶囊整块换到第二行，而不是把「完成」顶出右边界。
-                    Expanded(
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 2,
-                        crossAxisAlignment: WrapCrossAlignment.center,
+                    const SizedBox(height: 8),
+                    const _SheetHandle(),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 10, 12, 4),
+                      child: Row(
                         children: <Widget>[
-                          const Text(
-                            '订阅管理',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
-                              color: GlassPalette.ink,
+                          // 标题和配额胶囊成组靠左，「完成」靠右。1.0x 下 Wrap 只排
+                          // 一行、间距同为 8px，位置与原来的 Row + Spacer 逐像素一致；
+                          // 3.0x 下胶囊整块换到第二行，而不是把「完成」顶出右边界。
+                          Expanded(
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 2,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: <Widget>[
+                                const Text(
+                                  '订阅管理',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.3,
+                                    color: GlassPalette.ink,
+                                  ),
+                                ),
+                                _QuotaPill(
+                                  count: _stocks.length,
+                                  quota: widget.quota,
+                                ),
+                              ],
                             ),
                           ),
-                          _QuotaPill(
-                            count: _stocks.length,
-                            quota: widget.quota,
+                          // 48dp 命中区只放宽 hitTest，不撑高标题行：下方搜索框
+                          // 在 Column 里排在本行之后，向下扩会被它先命中。
+                          HitTarget(
+                            alignment: Alignment.bottomCenter,
+                            child: TextButton(
+                              onPressed: () => Navigator.of(context).pop(_stocks),
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFF1D6BF3),
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                minimumSize: const Size(0, 34),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text(
+                                '完成',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    // 48dp 命中区只放宽 hitTest，不撑高标题行：下方搜索框
-                    // 在 Column 里排在本行之后，向下扩会被它先命中。
-                    HitTarget(
-                      alignment: Alignment.bottomCenter,
-                      child: TextButton(
-                        onPressed: () => Navigator.of(context).pop(_stocks),
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFF1D6BF3),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          minimumSize: const Size(0, 34),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text(
-                          '完成',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+                      child: _SearchField(
+                        controller: _query,
+                        focusNode: _focus,
+                        enabled: true,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-                child: _SearchField(
-                  controller: _query,
-                  focusNode: _focus,
-                  enabled: true,
-                ),
-              ),
-              if (_hint != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Icon(
-                        Icons.info_outline_rounded,
-                        size: 13,
-                        color: Color(0xFF8A5A00),
-                      ),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
-                          _hint!,
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            height: 1.35,
-                            color: Color(0xFF8A5A00),
-                          ),
+                    if (_hint != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Icon(
+                              Icons.info_outline_rounded,
+                              size: 13,
+                              color: Color(0xFF8A5A00),
+                            ),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                _hint!,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.35,
+                                  color: Color(0xFF8A5A00),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              Flexible(
-                child: ScrollFrameRate(
-                  controller: appFrameRateController,
-                  child: ListView(
-                    // ⚠️ shrinkWrap 在这里是**布局契约**，不是性能冗余：
-                    // 弹层要"贴合内容高度"（只订了 3 只时不能撑满 0.82 屏）。
-                    // 换成 `ListView.builder`（或去掉 shrinkWrap）会让列表去
-                    // 吃满 Flexible 给的全部高度，弹层底部留一大片空白——
-                    // 2026-11-05 试过，被 `preview/app_preview_test` 的
-                    // watchlist golden 当场打红（见 PERF-AUDIT §10.4）。
-                    // 真要做懒加载，前提是先把弹层高度固定成产品决定的值。
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                    children: rows,
-                  ),
-                ),
+                        Flexible(
+                          child: ScrollFrameRate(
+                            controller: appFrameRateController,
+                            child: ListView(
+                              // ⚠️ shrinkWrap 在这里是**布局契约**，不是性能冗余：
+                              // 弹层要"贴合内容高度"（只订了 3 只时不能撑满 0.82 屏）。
+                              // 换成 `ListView.builder`（或去掉 shrinkWrap）会让列表去
+                              // 吃满 Flexible 给的全部高度，弹层底部留一大片空白——
+                              // 2026-11-05 试过，被 `preview/app_preview_test` 的
+                              // watchlist golden 当场打红（见 PERF-AUDIT §10.4）。
+                              // 真要做懒加载，前提是先把弹层高度固定成产品决定的值。
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                              children: rows,
+                            ),
+                          ),
+                        ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
+    ),
+  );
   }
 }
 

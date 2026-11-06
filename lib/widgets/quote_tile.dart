@@ -25,6 +25,7 @@ class QuoteTile extends StatelessWidget {
 
   final StockConfig stock;
   final ValueNotifier<Quote> quote;
+
   final VoidCallback? onTap;
 
   /// 可注入时钟：决定「快照」角标出不出现。
@@ -70,7 +71,11 @@ class QuoteTile extends StatelessWidget {
     return Stack(
       children: <Widget>[
         Positioned.fill(
-          child: GlassContainer(
+          // 卡片预设用 `GlassContainer.card`（1.16.1 的非废弃入口）。
+          // 不用 `GlassCard`：它在 1.16.1 已标 @Deprecated、2.0.0 移除，
+          // 引用一次就会让 flutter analyze 报 deprecated_member_use。
+          // 两者默认参数相同，这里逐项显式传，观感与原来的 GlassContainer 一致。
+          child: GlassContainer.card(
             useOwnLayer: true,
             // 关键发现（2026-11-03，读包源码确认）：**standard(2D) 轻量
             // 着色器既不画 frost，也不画 rim light，更没有 3D 折射**——
@@ -80,6 +85,13 @@ class QuoteTile extends StatelessWidget {
             quality: GlassQuality.premium,
             shape: const LiquidRoundedSuperellipse(borderRadius: 28),
             settings: kGlassSurface,
+            // 卡片预设默认 16 内边距；但这里玻璃**只当背景层**，内容在
+            // Stack 的另一层（见类注释 / paint_isolation_test.dart），
+            // 留白由内容层自己给，别让预设偷偷加一圈把内容挤进去。
+            padding: EdgeInsets.zero,
+            // 依赖台账已预告 2.0.0 起卡片默认材质从 glass 翻成 solid，
+            // 显式钉住，免得升版后 premium 光学静默变成白板。
+            surfaceStyle: GlassSurfaceStyle.glass,
             child: const SizedBox.shrink(),
           ),
         ),

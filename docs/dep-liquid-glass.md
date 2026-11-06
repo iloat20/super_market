@@ -24,15 +24,57 @@
 
 ## 三、API 使用面 = 升级时的回归清单
 
-全库只有 4 个文件引用它，升级后**逐符号**确认行为不变：
+全库只有 5 个文件引用它，升级后**逐符号**确认行为不变：
 
 | 文件 | 符号 | 用法要点 |
 | --- | --- | --- |
 | `lib/main.dart` | `LiquidGlassWidgets.initialize()` | 启动 shader 预热；已包 try/catch（R-01），升级后验证失败降级路径仍不白屏 |
-| `lib/main.dart` | `LiquidGlassWidgets.wrap` + `GlassThemeData.ios27()` + `brightnessResolver` | 全局玻璃主题；MaterialApp 必须显式传 brightness，否则暗色系统下阴影消失 |
+| `lib/main.dart` | `LiquidGlassWidgets.wrap` + `GlassThemeData.ios27()` + `brightnessResolver` + `adaptiveQuality`/`GlassAdaptiveScopeConfig` | 全局玻璃主题；MaterialApp 必须显式传 brightness，否则暗色系统下阴影消失；自适应开关与质量档钉子见下方补充 |
 | `lib/pages/quote_list_page.dart` | `GlassBackdropGroup` | 列表玻璃共享一次背景读取（Impeller 下每块 BackdropFilter 切断 render pass，组化是掉帧防线） |
-| `lib/widgets/glass.dart` | `LiquidGlassSettings.ios27Light.copyWith(…)` → `kGlassSurface` | 14 个参数：saturation/glassColor/frostOpacity/thickness/refractiveIndex/lightIntensity/fresnelStrength/rimLight/rimShade/rimShadeEnds/edgeAbsorption/bodyShade/glowIntensity/chromaticAberration——白光全清零、只留光学形变（调参史见该文件注释） |
-| `lib/widgets/quote_tile.dart` | `GlassContainer(useOwnLayer, quality: GlassQuality.premium, shape: LiquidRoundedSuperellipse, settings)` | premium 档是「边缘像玻璃」的唯一路径；standard 2D 轻量着色器不画 frost/rim |
+| `lib/widgets/glass.dart` | `LiquidGlassSettings.ios27Light.copyWith(…)` → `kGlassSurface` | 15 个参数：saturation/glassColor/frostOpacity/thickness/refractiveIndex/lightIntensity/fresnelStrength/lightAngle/rimLight/rimShade/rimShadeEnds/edgeAbsorption/bodyShade/glowIntensity/chromaticAberration——白光全清零、只留光学形变（调参史见该文件注释；`lightAngle` 自 2026-11-06 起为左上 3π/4，与自绘面板的 `kGlassLightFrom` 同一方向） |
+| `lib/widgets/quote_tile.dart` | `GlassContainer.card(useOwnLayer, quality: GlassQuality.premium, shape: LiquidRoundedSuperellipse, settings: kGlassSurface, surfaceStyle: glass)` | premium 档是「边缘像玻璃」的唯一路径；standard 2D 轻量着色器不画 frost/rim。2026-11-06 起从普通 `GlassContainer` 换成非废弃的 `.card` 预设，光学参数逐项保留 |
+| `lib/widgets/watchlist_sheet.dart` | `GlassContainer(useOwnLayer, quality: GlassQuality.premium, shape: LiquidRoundedRectangle, settings: kSheetGlassSurface)`（玻璃作背景层，内容平级） | 2026-11-06 起订阅弹层也走包的着色器玻璃（真模糊/rim/色散）；升级时确认 `LiquidRoundedRectangle` 仍在 |
+
+> **2026-11-06 补充 · 自适应开关为什么是「开着但钉死」**
+>
+> 全局初始化清单要求 `adaptiveQuality: true`，但直接裸开会让 root
+> `GlassAdaptiveScope` 成为**全局质量上限**——包内 `glass_theme_helpers.dart`
+> 明说显式 `quality: GlassQuality.premium` 也照样被压。默认配置三段降档
+> 路径（Phase 1 静态探针 / Phase 2 约 180 帧预热 / Phase 3 运行时 P95 迟滞）
+> 在本机（常态可用内存约 300MB、`erm_reclaimd` 20~30% CPU）很容易触发，
+> 一旦降到 standard，`kGlassSurface` 那 15 个按 iOS 27 premium 调的参数
+> 会整体失效。因此 `main.dart` 里的 `kGlassAdaptiveConfig` 把
+> `minQuality` / `maxQuality` / `initialQuality` 全设为 premium、
+> `allowStepUp: false`：首帧即 premium、跳过 3 秒预热、Phase 3 的
+> `stepDown` 被 `_floorQuality(..., minQuality)` 兜回。
+>
+> 代价：覆盖了包对「无 shader 支持设备」的保护阀，且仍多一个根
+> `InheritedWidget` 与每帧一次的 timings 回调。`test/glass_quality_pin_test.dart`
+> 用 2 条源码钉子 + 2 条行为刻画守着它，其中「对照组」实测裸开时第二帧
+> 质量上限就从 premium 掉下去了。**升级包时必须重跑这组用例**：
+> 只要上游不再让 `minQuality` 兜住静态探针，钉子会当场变红。
+
+> **2026-11-06 补充 · 卡片 Widget 口径（第二步）**
+>
+> 上游 1.16.1 把 **`GlassCard` 标为废弃**（`glass_card.dart:99`
+> `@Deprecated('Use GlassContainer.card instead. Will be removed in 2.0.0.')`，
+> CHANGELOG「Deprecations」第一条），非废弃替代是 `GlassContainer.card`。
+> 实测在工程里引用一次 `GlassCard`，`flutter analyze` 立刻报
+> `deprecated_member_use`，破坏「analyze 0 issue」门禁。
+> 另外**包里从来没有 `GlassPanel`**（`lib/`、CHANGELOG、`0.15.0` 字样
+> 均零命中）：本工程的 `GlassPanel` 是 `lib/widgets/glass.dart` 自绘的
+> `BackdropFilter + CustomPaint + GlassRim`，不受包版本废弃影响，
+> **不做迁移**（迁移会丢掉刚修好的零 saveLayer / 零 MaskFilter 实现，
+> 并破坏对比度与绘制分层测试）。
+>
+> 因此 `QuoteTile` 改用 `GlassContainer.card`，逐项保留
+> `quality: premium` / `settings: kGlassSurface` / `useOwnLayer` / 28 圆角 /
+> 「玻璃只当背景层、内容在 Stack 另一层」，另加两条：
+> `padding: EdgeInsets.zero`（预设默认 16，但本处玻璃无内容）与
+> `surfaceStyle: GlassSurfaceStyle.glass`（台账已预告 2.0.0 默认翻成 solid，
+> 先钉住）。golden 7/7 全绿 = 视觉零变化。
+> `test/glass_card_api_test.dart` 三条钉子守住：禁止出现 `GlassCard(`、
+> 卡片预设的光学参数不得丢、`GlassPanel` 必须仍是本地自绘类。
 
 ## 四、升级 SOP（2.0.0 或任何 1.16.x+）
 
@@ -72,3 +114,6 @@
 | 版本 | 日期 | 动作 / 走查结论 |
 | --- | --- | --- |
 | 1.16.1 | 2026-11-05 | 建档（= 上游最新版）；当前生产无升级动作；2.0.0 发布时按第四节 SOP 单执行 |
+| 1.16.1 | 2026-11-06 | 尝试 `GlassModalSheet.show(morphFromRect:)` 做详情液态形变，真机三处不达标（形变无感 / detent 定高压住页脚 / 按住拉伸变大），**当日回退**。沉淀：包的弹层是页面式模型；`detents:{medium}`+`gradual`+`fillThreshold 1.0` 可关掉实心化；`ScrollControllerProvider` 必须接管内容滚动。见 README 二·三十五 |
+| 1.16.1 | 2026-11-06 | 全局初始化补 `adaptiveQuality: true`（按清单），并用 `kGlassAdaptiveConfig` 把质量档钉死在 premium，避免静默降级；详情底部弹层加滚动感应的磨砂玻璃带（自绘，未新增依赖、未新增页面）。验收：`flutter analyze` 0 issue、404 逻辑用例全绿、7 个 golden 全绿（静止态像素零变化）。**真机 A/B 未做**：本轮 `adb devices` 无设备接入，见 README 待办 |
+| 1.16.1 | 2026-11-06 | 第二步「卡片实现」口径复核：`GlassCard` 才是 1.16.1 已废弃（2.0.0 移除）的组件，包内无 `GlassPanel`（本工程的是自绘类，不迁移）。`QuoteTile` 改用非废弃的 `GlassContainer.card` 并显式钉住 `surfaceStyle: glass`，premium / kGlassSurface / 分层结构全保留。analyze 0 issue、407 逻辑用例、7 golden 全绿，视觉零变化；新增 `test/glass_card_api_test.dart` 防误迁移 |

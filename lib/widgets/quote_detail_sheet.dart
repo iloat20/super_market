@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../config/app_config.dart';
 import '../models/kline.dart';
@@ -151,10 +152,19 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
     return _points = patchLatestPrice(src, q);
   }
 
+  /// 详情内容的滚动位置：驱动顶部磨砂玻璃带的浮出（见 [_DetailScrollBody]）。
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -225,76 +235,230 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
             // 所以给高度上限 + 可滚动，而不是缩小图表。
             maxHeight: MediaQuery.sizeOf(context).height * 0.86,
           ),
-          child: GlassPanel(
-            radius: 30,
-            // 34 → 18：模糊半径越大，背景被"洗"得越平，玻璃就退化成
-            // 一块灰白板。18 仍然看不清后面的列表文字（看不出写了什么），
-            // 但卡片轮廓和雾团的色相能透过来——"透"能被看见，靠的就是
-            // 这一点点还能分辨的结构，而不是更低的白色透明度。
-            blur: 18,
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-            // 监听器必须在玻璃**内部**：玻璃是 `BackdropFilter`，把它包在
-            // 监听器外面时，每 3 秒一次跳价都会重建整块面板（并重跑 sigma=18
-            // 的模糊）。这与 `quote_tile.dart` 的结论是同一条，只是那边靠
-            // Stack 拆层，这边靠 `GlassPanel.isolateChild` 隔图层。
-            child: ValueListenableBuilder<Quote>(
-              valueListenable: widget.quote,
-              builder: (BuildContext context, Quote q, Widget? _) {
-                return SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Center(child: _Handle()),
-                      const SizedBox(height: 10),
-                      _Header(stock: widget.stock, quote: q),
-                      const SizedBox(height: 12),
-                      _ChartSection(
-                        mode: _mode,
-                        region: widget.stock.region,
-                        onModeChanged: _switchMode,
-                        // 只把当前形态要用的那份传下去：报价每 3 秒跳一次，
-                        // 两个模式的数据都做一遍补丁是白算。
-                        //
-                        // 走 `_patched*` 而不是直接调 `patch*`：只有"真的变了"
-                        // 才允许产生新 List，否则日 K 的 RepaintBoundary 光栅
-                        // 缓存每 3 秒失效一次（判据是 identical，见 kline_chart）。
-                        bars: _mode == ChartMode.daily
-                            ? _patchedBars(q)
-                            : const <Kline>[],
-                        points: _mode == ChartMode.intraday
-                            ? _patchedPoints(q)
-                            : const <IntradayPoint>[],
-                        prevClose: q.previousClose,
-                        loading: _loading,
-                        error: _error,
-                        sourceId:
-                            (_mode == ChartMode.intraday
-                                ? _intraday?.sourceId
-                                : _daily?.sourceId) ??
-                            '',
-                        onRetry: _retry,
-                      ),
-                      const SizedBox(height: 16),
-                      _Metrics(
-                        quote: q,
-                        region: widget.stock.region,
-                        now: widget.now,
-                      ),
-                      const SizedBox(height: 14),
-                      _StatusRow(
-                        quote: q,
-                        now: widget.now,
-                        sourceLabel: widget.sourceLabel,
-                      ),
-                    ],
+          // v15：详情弹层的玻璃换成**卡片那一套** —— `GlassContainer.card`
+          // + `kGlassSurface` premium，不再用自绘 `GlassPanel`
+          // （`BackdropFilter` + 白膜 + GlassRim）。结构和 quote_tile.dart
+          // 完全一致：玻璃只当背景层，内容在 Stack 的另一层并用
+          // RepaintBoundary 隔开，3 秒一次的跳价不会重跑背景捕获。
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(30),
+              boxShadow: const <BoxShadow>[
+                BoxShadow(
+                  color: Color(0x12213A5C),
+                  blurRadius: 26,
+                  spreadRadius: -8,
+                  offset: Offset(0, 14),
+                ),
+                BoxShadow(
+                  color: GlassPalette.shadowSoft,
+                  blurRadius: 4,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: Stack(
+                children: <Widget>[
+                  // ① 底色膜：v14 指定的 `#D3DFD3`，留 7% 透。
+                  //    v15 首版给的是 72%，真机上压不住背后的列表文字
+                  //    ——弹层里的「今开/成交量」和列表价格叠成一片，
+                  //    没法读。`kGlassSurface` 是为压在纯色背景上的卡片
+                  //    调的（白纱清零 + frost 0），搬到压着内容的弹层上
+                  //    几乎全透；所以可读性要由这层底色膜兜住，而不是
+                  //    改卡片的材质参数。7% 透仍留一点结构给着色器，
+                  //    边缘的折射 / rim light / 色散照样看得见。
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: GlassPalette.background.withValues(alpha: 0.93),
+                    ),
                   ),
-                );
-              },
+                  // ② 卡片玻璃：同一入口、同一材质、同一套 premium 光学
+                  //    （折射 / rim light / 暗发丝边 / 色散）。
+                  Positioned.fill(
+                    child: GlassContainer.card(
+                      useOwnLayer: true,
+                      quality: GlassQuality.premium,
+                      shape: const LiquidRoundedSuperellipse(
+                        borderRadius: 30,
+                      ),
+                      settings: kGlassSurface,
+                      padding: EdgeInsets.zero,
+                      surfaceStyle: GlassSurfaceStyle.glass,
+                      child: const SizedBox.shrink(),
+                    ),
+                  ),
+                  // ③ 内容：与玻璃平级、自带独立图层。
+                  //    Stack 的尺寸由这个非 positioned 子节点决定。
+                  RepaintBoundary(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+                      child: ValueListenableBuilder<Quote>(
+                        valueListenable: widget.quote,
+                        builder: (BuildContext context, Quote q, Widget? _) {
+                          return _DetailScrollBody(
+                            controller: _scrollController,
+                            // 整棵内容树在这里建好、交给 AnimatedBuilder
+                            // 的 child 缓存：滚动每帧只重建 Stack + 顶部
+                            // 那条带，图表/指标一概不碰。
+                            body: _body(context, q),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// 弹层内容（两种外壳共用）。
+  Widget _body(BuildContext context, Quote q) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Center(child: _Handle()),
+        const SizedBox(height: 10),
+        _Header(stock: widget.stock, quote: q),
+        const SizedBox(height: 12),
+        _ChartSection(
+          mode: _mode,
+          region: widget.stock.region,
+          onModeChanged: _switchMode,
+          // 只把当前形态要用的那份传下去：报价每 3 秒跳一次，
+          // 两个模式的数据都做一遍补丁是白算。
+          //
+          // 走 `_patched*` 而不是直接调 `patch*`：只有"真的变了"
+          // 才允许产生新 List，否则日 K 的 RepaintBoundary 光栅
+          // 缓存每 3 秒失效一次（判据是 identical，见 kline_chart）。
+          bars: _mode == ChartMode.daily
+              ? _patchedBars(q)
+              : const <Kline>[],
+          points: _mode == ChartMode.intraday
+              ? _patchedPoints(q)
+              : const <IntradayPoint>[],
+          prevClose: q.previousClose,
+          loading: _loading,
+          error: _error,
+          sourceId:
+              (_mode == ChartMode.intraday
+                  ? _intraday?.sourceId
+                  : _daily?.sourceId) ??
+              '',
+          onRetry: _retry,
+        ),
+        const SizedBox(height: 16),
+        _Metrics(
+          quote: q,
+          region: widget.stock.region,
+          now: widget.now,
+        ),
+        const SizedBox(height: 14),
+        _StatusRow(
+          quote: q,
+          now: widget.now,
+          sourceLabel: widget.sourceLabel,
+        ),
+      ],
+    );
+  }
+}
+
+/// 磨砂带从 0 浮到完全显现所需的滚动距离。
+///
+/// 28dp 是「刚好盖过拖拽条 + 标题下行」的距离：再长，用户已经滚走小半屏
+/// 头部才立起来；再短，手指一碰就跳出一根白边。
+const double _kScrimFadeRange = 28;
+
+/// 详情内容 + 顶部滚动感应的玻璃带。
+///
+/// 结构是刻意的：滚动视图是 Stack 的**非定位子节点**，它收到的约束与原来
+/// 直接放在 `GlassPanel` 里完全一致 —— 静止态（offset=0）多一个子层都不会
+/// 进树，golden 零变化；磨砂带是定位子节点，只在 offset>0 时才出现。
+///
+/// `AnimatedBuilder` 监听的是 `ScrollController`（ChangeNotifier），并把整棵
+/// 内容树放进 `child` 缓存：滚动只重建这一个 Stack 和一条 30dp 的带，不会
+/// 连带重建 `_body`（图表、指标、状态行），也不会碰外层 sigma=18 的
+/// `BackdropFilter`。
+class _DetailScrollBody extends StatelessWidget {
+  const _DetailScrollBody({required this.controller, required this.body});
+
+  final ScrollController controller;
+  final Widget body;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      child: SingleChildScrollView(controller: controller, child: body),
+      builder: (BuildContext context, Widget? scrollView) {
+        final double offset = controller.hasClients ? controller.offset : 0.0;
+        final double progress = (offset / _kScrimFadeRange).clamp(0.0, 1.0);
+        return Stack(
+          children: <Widget>[
+            scrollView!,
+            if (progress > 0)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: _DetailHeaderScrim(
+                    key: const Key('detailHeaderScrim'),
+                    progress: progress,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 顶部磨砂带：随滚动量线性浮出，底边一根发丝高光把「栏」立住。
+///
+/// 与自绘 `GlassRim` 同一套语言：靠**边缘**而不是靠一大片白来说明这里有
+/// 一块玻璃。刻意**不加第二层 BackdropFilter** —— 外层 `GlassPanel` 已经做
+/// 了一次 sigma=18 的全面板模糊，再套一层会在滚动时每帧重跑模糊（列表侧
+/// 和弹层侧都踩过这个坑）。这里只有一层确定性渐变 + 描边，纯几何绘制、
+/// 逐像素可复现，不产生 saveLayer。
+class _DetailHeaderScrim extends StatelessWidget {
+  const _DetailHeaderScrim({super.key, required this.progress});
+
+  /// 0 = 完全不画，1 = 完全浮出。
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    // v13：磨砂带必须跟弹层同色，否则在豆腐色面板上滚动时会浮出一条白带。
+    const Color scrim = GlassPalette.background;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            scrim.withValues(alpha: 0.88 * progress),
+            scrim.withValues(alpha: 0.52 * progress),
+            scrim.withValues(alpha: 0.0),
+          ],
+          stops: const <double>[0, 0.55, 1],
+        ),
+        border: Border(
+          bottom: BorderSide(
+            color: scrim.withValues(alpha: 0.92 * progress),
+            width: 0.8,
+          ),
+        ),
+      ),
+      child: const SizedBox(height: 30),
     );
   }
 }

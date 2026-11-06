@@ -58,7 +58,9 @@ Quote _quote({
 }
 
 /// 预览外壳：和 `main.dart` 的层级保持一致（wrap 在 MaterialApp 之外），
-/// 背景放 `AuroraBackground`，否则玻璃没有东西可折射，看起来像一块灰板。
+/// 背景放 `AuroraBackground`，与真机同一份背景（当前是单一实色，
+/// 色号见 `GlassPalette.background`）；预览里若
+/// 自己填一个近似的白，看到的就不是装到手机上的那张图。
 ///
 /// 必须是公开符号：`@Preview` 的注解参数只接受字面量和公开符号，
 /// 私有函数会被 `invalid_widget_preview_private_argument` 拦下。

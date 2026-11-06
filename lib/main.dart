@@ -11,6 +11,35 @@ import 'utils/error_hooks.dart';
 import 'utils/exit_diagnostics.dart';
 import 'utils/perf_probe.dart';
 
+/// 全局玻璃质量档：**开启自适应，但把它的降档自由度全部关掉**。
+///
+/// `adaptiveQuality: true` 会在根插入 `GlassAdaptiveScope`，而它是全局质量
+/// **上限**——连 `quote_tile.dart` / `watchlist_sheet.dart` 里显式写的
+/// `quality: GlassQuality.premium` 也会被压下去（见包内 `glass_theme_helpers.dart`
+/// 的解析优先级注释）。默认配置有三段降档路径：Phase 1 静态探针（无 shader
+/// 支持 → minimal）、Phase 2 约 180 帧预热基准、Phase 3 运行时 P95 迟滞。
+/// 本机常态可用内存约 300MB、`erm_reclaimd` 常驻 20~30% CPU，落进降档区间的
+/// 概率不低；一旦降档，轻量 2D 着色器不画 frost / rim light / 3D 折射，
+/// `kGlassSurface` 那 15 个按 iOS 27 premium 逐项调出来的参数会整体失效。
+///
+/// 四个值一起钉死：
+/// - min/max 同为 premium：Phase 1 的 forced 值与 Phase 3 的 stepDown 都会被
+///   `_floorQuality(..., minQuality)` 兜回 premium；
+/// - initialQuality = premium：首帧即 premium，且跳过约 3 秒的 Phase 2 预热
+///   窗口（包内 `start()` 遇到非 null 的 initialQuality 直接进 Phase 3）；
+/// - allowStepUp: false：不再有升档回调。
+///
+/// 代价说清楚：这等于把开关打开但不让它改变画质，仍多一个根 InheritedWidget
+/// 和每帧一次的 timings 回调；也覆盖了包对「无 shader 支持设备」的保护阀。
+/// 这是「必须开 adaptiveQuality」与「premium 观感不能退」两条约束的交集，
+/// 升级玻璃包时按 docs/dep-liquid-glass.md 第四节重新验一次。
+const GlassAdaptiveScopeConfig kGlassAdaptiveConfig = GlassAdaptiveScopeConfig(
+  minQuality: GlassQuality.premium,
+  maxQuality: GlassQuality.premium,
+  initialQuality: GlassQuality.premium,
+  allowStepUp: false,
+);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -65,6 +94,9 @@ Future<void> main() async {
       theme: const GlassThemeData.ios27(),
       // MaterialApp 必须显式传：否则暗色系统 + 亮色 App 时阴影/描边会消失
       brightnessResolver: Theme.maybeBrightnessOf,
+      // 设备性能自适应：开着，但质量档被 kGlassAdaptiveConfig 钉死在 premium
+      adaptiveQuality: true,
+      adaptiveConfig: kGlassAdaptiveConfig,
       child: SuperMarketApp(dependencies: deps),
     ),
   );

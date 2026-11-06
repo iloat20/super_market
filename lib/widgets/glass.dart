@@ -1,7 +1,10 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
+import 'glass_rim.dart';
 
 /// 液态玻璃（Liquid Glass）设计令牌。
 ///
@@ -40,6 +43,10 @@ abstract final class GlassPalette {
   // 色相不动（红 5°、绿 152°），只压明度。旧值 E03A2F/0E9F5B 是屏幕观感
   // 调出来的，压在浅玻璃上偏亮。现在按**实测最暗背景**取值：首页卡片 #EAE7E6（L=0.80）、
   // 弹层面板 L≈0.79，红 4.57:1 / 绿 4.82:1，都留了一档余量（见 test/contrast_test.dart）。
+  //
+  // ✅ v18 实色底色是 `#F0EEE9`（L≈0.856），仍高于上面取色用的
+  // L≈0.79 基线：inkSoft / 涨红 / 跌绿估算都过 4.5:1。
+  // contrast_test 仍按叫停未跑，估算不等于实测。
   static const Color up = Color(0xFFC62828);
   static const Color down = Color(0xFF0A7341);
   static const Color flat = Color(0xFF5B616C);
@@ -68,9 +75,34 @@ abstract final class GlassPalette {
   // v9：再压一档。B 档（60%/×0.45）真机上仍是「看得出颜色」的背景，用户
   // 选 C 档。底色同步从 F9F6F3/F2F1F3/DCDAE1 收到 F8F6F5/EFEEEF/DCDBDE：
   // 三块彩度降到 3/1/3，几乎只能读出明度，读不出色相。
-  static const Color bgTop = Color(0xFFF8F6F5);
-  static const Color bgMid = Color(0xFFEFEEEF);
-  static const Color bgBottom = Color(0xFFDCDBDE);
+  //
+  /// 整页底色（v18 用户指定 `#F0EEE9`）：实色层、极光层、详情弹层底色膜共用。
+  ///
+  /// `#F0EEE9`：RGB 240/238/233，近白的中性微暖（R-G-B 只差 2~5），
+  /// 相对亮度 L≈0.856 —— 与 v17 的 `#F5EDE2`（0.855）几乎相同，
+  /// 但**色相更中性**：v17 的暖调来自 R-B 差 19，这版只差 7。
+  ///
+  /// 单一实色，无渐变、无雾团。详情弹层的底色膜是本色的 93% 版本
+  /// （v15 起玻璃层是卡片那套 `GlassContainer.card` + `kGlassSurface`），
+  /// 滚动磨砂带 `_DetailHeaderScrim` 也取本常量；v19 起订阅弹层的
+  /// 93% 底色膜与 76% `glassColor` 同样取本常量 —— 改这一处，
+  /// 背景 / 详情页 / 订阅弹层一起换色。
+  ///
+  /// ✅ 亮度仍高于项目基线「面板最暗处 L≈0.79」：按基线估算
+  /// inkSoft ≈5.3:1、涨红 ≈4.9:1、跌绿 ≈5.2:1，三档都过 4.5:1；
+  /// 且无绿相，v14 淡绿与「跌绿」撞相的问题不再有。
+  /// `contrast_test` 仍按叫停未跑，**估算不等于实测**。
+  static const Color background = Color(0xFFF0EEE9);
+
+  // v10（用户「背景色用白色」）：三档基色收成同一实色（纯白）。
+  // v11（豆腐白）/ v12（#F5F5F0）/ v13（#E6E5D6，含详情弹层）/
+  // v14（#D3DFD3）/ v15（详情弹层改卡片玻璃）/ v16（#E8E3D9）/
+  // v17（#F5EDE2）/ v18（#F0EEE9）：实色一律取 [background]。
+  // v9 那三档只在 [kSolidBackground] 关掉、极光重新启用时才用得上，
+  // 历史值见 git。
+  static const Color bgTop = background;
+  static const Color bgMid = background;
+  static const Color bgBottom = background;
 }
 
 /// 雾团的 alpha 衰减曲线：**高斯型**，不是线性。
@@ -105,6 +137,23 @@ const List<ui.FontFeature> kTabularFigures = <ui.FontFeature>[
 /// 此时再不给白纱，背景会变成「浅而脏的灰」——颜色没了，但也没变亮。
 /// 这一档的磨砂感主要靠它。
 const Color _kVeil = Color(0x2EFFFFFF);
+
+/// 整页背景是否为**单一实色**（v10 起；v11 把这块实色定为豆腐白）。
+///
+/// `true`：[AuroraBackground] 只画一层不透明的 [GlassPalette.background]，
+/// 雾团 / 白纱 / 底部压暗全部不绘制。类名和调用点保持不变，页头
+/// [HeaderFade] 仍复用同一个 Widget，「盖上去之后顶部像素零色差」这条
+/// 保证因此依然成立。
+///
+/// `false`：回到 v9 的极光实现（底色同样取 [GlassPalette.background]），
+/// 白底上仍留极淡的雾与底部压暗——玻璃背后多一点可折射的层次。
+/// **只改这一个常量即可回退**，v1~v9 的调参记录与绘制代码都原样留在
+/// 下面，没有删。
+///
+/// ⚠️ 单一实色的代价（v2 的老教训）：背景没有明暗和色相起伏时，卡片的
+/// premium 折射、色散、边缘光学基本读不出来，接近普通白卡。豆腐白只比
+/// 纯白多给一点底色，救不回折射；要更多层次就把开关翻成 false。
+const bool kSolidBackground = true;
 
 /// 应用背景：中性渐变底 + 一片「晨雾」（极光式多色光域）。
 ///
@@ -169,13 +218,90 @@ const Color _kVeil = Color(0x2EFFFFFF);
 /// ⚠️ 光团定位**不能用 `Align`**，原因见 [_mistGlow] 的注释：光团尺寸超过
 /// 父容器时 Align 的偏移方向会反转，顶光会跑到屏幕正中变成一个橙色圆盘。
 ///
-/// 仍然**无绿色**：绿色在本 App 里专属「跌」，背景出绿会误导。
+/// v1~v9 的极光背景**刻意不含绿色**：绿色在本 App 里专属「跌」，
+/// 背景出绿会误导。v14 曾短暂换成淡绿 `#D3DFD3`（用户指定），
+/// v16 又回到无绿相的暖米灰 `#E8E3D9`，这条约束恢复。
 /// 类名保留 `AuroraBackground`：页 / 弹层 / 预览 harness 的调用点不动。
+///
+/// ## v10：背景色用白色
+///
+/// 从 v1 到 v9 一直在做减法（降饱和 → 降 alpha → 加白纱），到这里用户
+/// 直接要白色。所以 [build] 在 [kSolidBackground] 为 true 时提前返回
+/// 一层不透明实色，下面 v5~v9 那整套极光画布**不参与绘制**；代码保留是为了
+/// 一行常量就能回退，也为了留住这九轮调参的原因（不是只留结论）。
+///
+/// ## v11：实色由纯白改豆腐白 / v12~v18：色号连续拍板
+///
+/// 用户看了纯白真机截图后要「豆腐白」：仍是单一实色、仍无雾团，只把
+/// [GlassPalette.background] 从 `#FFFFFF` 换成豆腐白；19:07 指定
+/// `#F5F5F0`（替换我先前自选的 `#F7F5EF`），19:29 改 `#E6E5D6`，
+/// 19:37 换 `#D3DFD3`，19:53 `#E8E3D9`，20:11 `#F5EDE2`，
+/// 20:32 再定 `#F0EEE9`。改一处即全生效，页头 [HeaderFade]、
+/// Widget Previews 复用本类自动跟上。
+///
+/// ## v13：背景与详情弹层统一色号 / v14：只改一个常量
+///
+/// 19:29 用户「背景色和详情页改这个色号」。整页背景、页头、预览走本类；
+/// 详情弹层是 `quote_detail_sheet.dart` 里独立的自绘 `GlassPanel`，
+/// 当时把它的 `tint` 和滚动磨砂带都接到了 [GlassPalette.background]
+/// 上（玻璃层本来不吃这个令牌）。所以 v14 换色时**只动了一个常量**，
+/// 背景与详情页自动联动。订阅弹层走 `kSheetGlassSurface` 的 premium
+/// 材质，两轮都未改。
+///
+/// ## v15：详情弹层改用卡片玻璃
+///
+/// 用户「详情页的玻璃用卡片的玻璃效果」。详情弹层从自绘 `GlassPanel`
+/// （`BackdropFilter` + 白膜 + `GlassRim`）迁到 `GlassContainer.card`
+/// + `kGlassSurface` premium，与 `QuoteTile` 同一个入口、同一套材质；
+/// 结构照 `quote_tile.dart` 的 Stack 分层（玻璃背景层 / 内容平级 +
+/// `RepaintBoundary`）。底色膜最终定在 93% 的 [GlassPalette.background]：
+/// 首版 72% 在真机上压不住背后的列表价格，弹层文字与列表叠成一片；
+/// 调实一档后可读性恢复，边缘折射 / rim / 色散仍可见。
+///
+/// ⚠️ `test/detail_paint_layers_test.dart` 两条断言写死了 `GlassPanel`
+/// 与「内容到 `BackdropFilter` 之间必须有 `RepaintBoundary`」，新结构下
+/// 会红，需同步改断言（本轮按叫停未跑、未改测试）。
+///
+/// ## v16：换回暖米灰 `#E8E3D9`
+///
+/// 用户「换这个色号」。只改 [GlassPalette.background] 一个常量：
+/// 整页背景、页头、预览、详情弹层底色膜、滚动磨砂带全部联动。
+/// 淡绿带来的「与跌色撞相」问题随之消失，亮度回到 v13 附近；
+/// 详情弹层的卡片玻璃（v15）与本轮无关，未动。
+///
+/// ## v17：暖米白 `#F5EDE2`，对比度风险解除
+///
+/// 用户「换这个色号」。仍然只改 [GlassPalette.background] 一个常量。
+/// 这档 L≈0.855 已高于项目对比度基线 0.79，v13~v16 一直贴着
+/// 4.5:1 的涨红按估算终于过线；`contrast_test` 按叫停未跑，
+/// 估算值不等于实测值。详情弹层的卡片玻璃与 93% 底色膜都未动。
+///
+/// ## v18：中性近白 `#F0EEE9`
+///
+/// 用户「换这个色号」。仍只改 [GlassPalette.background] 一个常量。
+/// 亮度与 v17 几乎相同（L≈0.856），差别在色相：暖调压到 R-B 差 7，
+/// 更接近中性白。对比度结论不变（估算三档都过 4.5:1，
+/// `contrast_test` 仍未跑）。详情弹层结构与 93% 底色膜都未动。
+///
+/// ## v19：订阅弹层接入同一色号
+///
+/// 用户「订阅管理弹层也用这个色号」。它原本走 `kSheetGlassSurface`
+/// 的 76% **白**膜，不吃背景令牌。两处一起改：膜的 `glassColor` 换成
+/// [GlassPalette.background] 的 76%，玻璃层下面再铺一层 93% 底色膜
+/// （和详情弹层一致，用于挡住背后的列表文字）。至此整页背景、
+/// 详情弹层、订阅弹层三处表面共用一个色号。
+///
+/// 实色层比极光版更省：少 8 个径向渐变、少一层白纱和一层明暗渐变，
+/// 静态层光栅化一次即可。[HeaderFade] 复用本类，两边同为同一实色，
+/// 任何画幅下都零色差。
 class AuroraBackground extends StatelessWidget {
   const AuroraBackground({super.key});
 
   @override
   Widget build(BuildContext context) {
+    if (kSolidBackground) {
+      return const ColoredBox(color: GlassPalette.background);
+    }
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -355,25 +481,78 @@ class AuroraBackground extends StatelessWidget {
 /// 踩坑记录：只把 `rimLight` 调到 0 而留着 `glassColor`/`frost`，卡片会变成
 /// 一块**没有边的雾**（比白带更难看）；反过来只去白纱留 rimLight，白带照旧。
 /// 这两组必须一起处理。
+///
+/// ## v10：把边缘光「换个方向」请回来
+///
+/// v6 清零 rimLight 是因为它当时的光轴在**正上方**（原生 π/2）：两个光瓣落在
+/// 上下两条边的正中，在 100dp 高的扁卡上就是「上下各一条白带」，看着像发光框
+/// 而不是玻璃。那一版之后卡片只剩折射 + 暗发丝边 + 色散，于是又走到另一个
+/// 极端——真机上看是一块「边上有暗线的半透明片」，没有受光面，所以平。
+///
+/// 这次不是把亮度加回来，而是**把光轴转到左上斜角**（[kGlassLightAngle]）：
+/// 同样的 `rimLight`，光瓣落在左上/右下两个**圆角**上，读起来是「一块斜着
+/// 受光的玻璃」。三个值配套改：
+/// - `rimLight` 0 → **0.75**（原生 1.0；我们的卡比原生控制件薄、更透，
+///   满强度会变成一圈白描边，先给 3/4）；
+/// - `edgeAbsorption` 0.14 → **0.18**：边缘变厚，透光损失更多，暗部才有地方
+///   接住高光（只提亮不压暗 = 发光边）；
+/// - `refractiveIndex` 1.52 → **1.55**：真玻璃约 1.5，边缘弯曲再强一档，
+///   在雾团渐变上能看出「背景被弯了一下」。
+///
+/// 宽幅镜面（`lightIntensity`）仍然是 0——它才是「整条白带」的来源，
+/// `rimLight` 只是贴着轮廓的两个光瓣，两者不是一回事。
 final LiquidGlassSettings kGlassSurface = LiquidGlassSettings.ios27Light
     .copyWith(
       // 去白之后折射会显得发灰，靠饱和度把雾团颜色提回来
-      saturation: 1.45,
+      saturation: 1.5,
       glassColor: const Color(0x00FFFFFF), // 白纱清零
       frostOpacity: 0.0, // 霜清零
       // 厚度 56 → 44：透镜带仍在（这是「有厚度的材料」的来源），但带子窄一点，
       // 避免边缘折射卷进来的那圈亮边又变成一条白带
       thickness: 44,
-      refractiveIndex: 1.52,
-      lightIntensity: 0.0, // 宽镜面高光清零
-      fresnelStrength: 0.95, // 0.7 → 0.95：轮廓只靠这一圈立住
-      rimLight: 0.0, // 上下光瓣清零（白光的真正来源）
+      refractiveIndex: 1.55,
+      lightIntensity: 0.0, // 宽镜面高光清零（整条白带来自它）
+      fresnelStrength: 0.9, // 轮廓的底光；rimLight 回来之后让一档给它
+      // 光轴从正上方转到左上斜角：光瓣落在对角圆角上，不再横贯上下边
+      lightAngle: kGlassLightAngle,
+      rimLight: 0.75,
       rimShade: 1.0, // 1.8 → 1.0：暗线保留，但不再过重
       rimShadeEnds: 0.2,
-      edgeAbsorption: 0.14,
+      edgeAbsorption: 0.18,
       bodyShade: 0.0, // 必须为 0：0.3 会把卡身压成灰色
       glowIntensity: 1.0,
       chromaticAberration: 0.55, // 0.45 → 0.55：色散加强，玻璃签名
+    );
+
+/// 订阅弹层的玻璃材质（v19 起**只服务订阅弹层**；详情弹层 v15 已改走
+/// [kGlassSurface]）。
+///
+/// 边缘光学（折射 / rim light / 暗发丝边 / 色散）与模糊 18 沿用原值。
+///
+/// `bodyMode: clear` 是关键：默认的 adaptive 会「保住背景亮度、只取色相」，
+/// 玻璃色再高也提不亮深色背景；clear 才是真正的 alpha 合成。
+///
+/// v19（用户「订阅管理弹层也用这个色号」）：`glassColor` 从 76% 白换成
+/// [GlassPalette.background] 的 76% —— 白膜会把底色洗成白，必须连膜一起
+/// 换色，弹层才呈 `#F0EEE9`。与详情弹层的 93% 底色膜是同一套思路，
+/// 以后改背景令牌时自动联动。
+final LiquidGlassSettings kSheetGlassSurface = LiquidGlassSettings.ios27Light
+    .copyWith(
+      bodyMode: GlassBodyMode.clear,
+      glassColor: GlassPalette.background.withValues(alpha: 0.76),
+      blur: 18,
+      frost: 0,
+      saturation: 1.2,
+      thickness: 34,
+      refractiveIndex: 1.45,
+      lightAngle: kGlassLightAngle,
+      lightIntensity: 0.25,
+      fresnelStrength: 0.85,
+      rimLight: 0.55,
+      rimShade: 1,
+      rimShadeEnds: 0.2,
+      edgeAbsorption: 0.12,
+      chromaticAberration: 0.35,
     );
 
 /// 卡片圆角（页头已不再有玻璃，见 [HeaderFade]）
@@ -528,13 +707,25 @@ Positioned _mistGlow(
   );
 }
 
-/// 液态玻璃面板：磨砂背景 + 半透明白渐变 + 发丝边 + 顶部镜面高光 + 斜向眩光。
+/// 液态玻璃面板：磨砂背景 + 半透明白渐变 + 边缘光学（见 [GlassRim]）。
 ///
-/// 结构顺序（从下到上）：阴影 → 裁剪 → 背景模糊 → 玻璃填充/描边 → 高光 → 内容。
+/// ⚠️ **这是本工程自绘的组件，不是 `liquid_glass_widgets` 的 API**。
+/// 包 1.16.1 里不存在 `GlassPanel`（`lib/` 与 CHANGELOG 均零命中），
+/// 所以「某版本起废弃、应迁到 `GlassCard`」不适用于这个类；反过来
+/// `GlassCard` 才是包里已 `@Deprecated`、2.0.0 移除的那个。别按包名
+/// 想当然地替换——本类的 `GlassRim` 边缘光学、边缘去白膜与零 saveLayer
+/// 实现是真机调出来的，没有包内等价物。见 `test/glass_card_api_test.dart`。
+///
+/// 结构顺序（从下到上）：阴影 → 裁剪 → 背景模糊 → 玻璃填充 → 边缘光学 → 眩光 → 内容。
 ///
 /// ⚠️ 这个类**不走** [kGlassSurface]（那是 LiquidGlassWidgets 的参数，给行情卡
-/// 用的）。弹层用的是这里的自绘实现，所以「弹层要更透」改的是本类的默认
-/// [tint] 与调用点传进来的 [blur]——这两处才是弹层那层白膜的真实来源。
+/// 用的）。「弹层要更透」改的是本类的默认 [tint] 与调用点传进来的 [blur]
+/// ——这两处才是那层白膜的真实来源。
+///
+/// ⚠️ v15 起**详情弹层已不再用本类**（迁到 `GlassContainer.card` +
+/// `kGlassSurface` premium，见 `quote_detail_sheet.dart`）。本类现在只服务
+/// 列表页的错误提示条；它承载 17:08 那次「零 saveLayer / 零 MaskFilter」
+/// 的真机掉帧修复，别因为「弹层都不用了」就顺手删掉。
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
@@ -552,7 +743,7 @@ class GlassPanel extends StatelessWidget {
   final double blur;
   final EdgeInsetsGeometry padding;
 
-  /// 自定义玻璃填充（默认是白 30% → 白 12% 的对角渐变）
+  /// 自定义玻璃填充（默认是白 74% → 60% 的对角渐变）
   final Gradient? tint;
 
   /// 是否带外阴影（悬浮卡片 true，内嵌元素 false）
@@ -575,6 +766,12 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final BorderRadius r = BorderRadius.circular(radius);
+    // 边缘去白膜的宽度。
+    //
+    // 悬浮面板（弹层）才有：它的边缘必须能看见**背后的东西**，玻璃才立得住。
+    // 提示条（lifted = false）高度只有 40 上下，上下各切 16px 会把红色底全
+    // 擦光，所以那一档不切。
+    final double edgeClear = lifted ? 9 : 0;
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: r,
@@ -600,8 +797,10 @@ class GlassPanel extends StatelessWidget {
         borderRadius: r,
         child: BackdropFilter(
           filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
+          child: Stack(
+            children: <Widget>[
+              // 玻璃填充：白膜 + 边缘去白膜。
+              //
               // 白 55%→24% 降到 30%→12%：这层是弹层"发灰白"的主犯。
               // 背后已经有一层 blur 和深色 barrier，再压 55% 白就只剩塑料片。
               //
@@ -611,77 +810,150 @@ class GlassPanel extends StatelessWidget {
               // 文字 L ≤ 0.09，那已经是纯黑，红绿更是无解（跌绿只有 2.3:1）。
               // 内容层不是装饰层，它必须**足够亮到能承载文字**；"透"靠边缘
               // 高光、模糊和色相渗透保留，不靠把整块面板拉灰。
-              gradient:
-                  tint ??
-                  const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[Color(0xBDFFFFFF), Color(0x99FFFFFF)],
-                  ),
-              borderRadius: r,
-              border: Border.all(color: GlassPalette.stroke, width: 1),
-            ),
-            child: Stack(
-              children: <Widget>[
-                // 顶部 1px 镜面反光，玻璃的「厚度」主要靠它。
-                // 收到 65%：白纱减半后，原来那条 90% 的纯白线会独自变成
-                // 卡顶上一条刺眼的白边
-                const Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 1,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: <Color>[Color(0xA6FFFFFF), Color(0x00FFFFFF)],
-                      ),
-                    ),
-                  ),
-                ),
-                // 底部 1px 环境反射，让玻璃看起来有厚度
-                const Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  height: 1,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: <Color>[
-                          Color(0x00FFFFFF),
-                          Color(0x47FFFFFF),
-                          Color(0x00FFFFFF),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                // 斜向眩光
-                const Positioned.fill(
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _GlassFillPainter(
+                    radius: radius,
+                    gradient:
+                        tint ??
+                        const LinearGradient(
                           begin: Alignment.topLeft,
-                          end: Alignment.center,
-                          colors: <Color>[Color(0x1FFFFFFF), Color(0x00FFFFFF)],
+                          end: Alignment.bottomRight,
+                          colors: <Color>[Color(0xBDFFFFFF), Color(0x99FFFFFF)],
                         ),
+                    edgeClear: edgeClear,
+                  ),
+                ),
+              ),
+              // 边缘光学：暗发丝边 / 亮芯 / 内侧反光 / 色散 / 底部反光。
+              // 这一层替代了原来的「均匀 1px 白边 + 上下两条直线高光」——
+              // 那三样不看光源方向，是「平」的根源。
+              Positioned.fill(
+                child: GlassRim(
+                  radius: radius,
+                  // 提示条面积小，完整的八道描边在小尺寸上会描得太重
+                  intensity: lifted ? 1 : 0.7,
+                ),
+              ),
+              // 斜向眩光：整块玻璃接住的漫反射。12% → 8%：边缘光学立起来之后，
+              // 大面积的斜向白会盖住它，点到为止即可。
+              const Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.center,
+                        colors: <Color>[Color(0x14FFFFFF), Color(0x00FFFFFF)],
                       ),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: padding,
-                  // 内容独占图层：跳价 / 滚动只重绘这一层，不必回灌上面的
-                  // BackdropFilter（否则每次重绘都要重跑一次 sigma=blur 的模糊）
-                  child: isolateChild ? RepaintBoundary(child: child) : child,
-                ),
-              ],
-            ),
+              ),
+              Padding(
+                padding: padding,
+                // 内容独占图层：跳价 / 滚动只重绘这一层，不必回灌上面的
+                // BackdropFilter（否则每次重绘都要重跑一次 sigma=blur 的模糊）
+                child: isolateChild ? RepaintBoundary(child: child) : child,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+/// 玻璃填充：整块白膜，但**轮廓内侧 [edgeClear] 的一圈把白膜分三档变薄**
+/// （55% → 70% → 87% → 内部 100%）。
+///
+/// ## 为什么必须薄这一圈
+///
+/// 玻璃的「厚度」只能从边缘读出来，而白膜是一张盖住整块面板的纸——它把边缘
+/// 也盖住了。改动期量过：白膜 74%→60% 时，边缘处背景只透出 26~40%，在倒角带里
+/// 加一圈「低模糊 + 1.05 倍放大」的透镜，整张图最大像素差只有 **4/255**，等于
+/// 没有。变薄之后同一处能透出 50~60%，背景的卡片边界、文字块在倒角里重新出现，
+/// 「这块玻璃有厚度」才成立。内部的白膜**一点没动**，所以文字对比度
+/// （`test/contrast_test.dart` 量的就是文字左侧 4dp）不受影响。
+///
+/// ## 为什么是「分档直填」而不是 saveLayer + dstOut
+///
+/// 两个原因，都硬：
+///
+/// 1. **帧率**。`saveLayer` 会开一块**整个面板大小**的离屏；弹层滑入动画期间
+///    这棵子树逐帧重栅格化，等于每帧 1 次全面板离屏。再算上边缘光学里原本的
+///    4 道 `MaskFilter.blur`（每道也是一次离屏），一帧 5 次全面板通道——
+///    真机上打开弹层直接掉帧（2026-11-06 真机反馈）。改成 evenOdd 环形路径
+///    逐档直填之后，填充本身就是 4 次普通渐变绘制，没有任何离屏。
+/// 2. **可复现**。`dstOut` + `MaskFilter.blur` 在软件光栅下还会产出 1 阶随机
+///    噪声（同一次提交连跑两遍 `--update-goldens` md5 不同），golden 永远
+///    对不上。直填是纯几何，逐像素确定。
+///
+/// 档与档之间的过渡带用 evenOdd（外环减内环）画，同一份渐变、只按档位把
+/// alpha 缩放——三档每级只差 0.03 左右亮度，1x 看不出阶梯。
+class _GlassFillPainter extends CustomPainter {
+  const _GlassFillPainter({
+    required this.radius,
+    required this.gradient,
+    required this.edgeClear,
+  });
+
+  final double radius;
+  final Gradient gradient;
+  final double edgeClear;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Rect rect = Offset.zero & size;
+    RRect shapeOf(double inset) => RRect.fromRectAndRadius(
+      rect.deflate(inset),
+      Radius.circular(math.max(0, radius - inset)),
+    );
+    final Paint fill = Paint()..shader = gradient.createShader(rect);
+
+    if (edgeClear <= 0) {
+      canvas.drawRRect(shapeOf(0), fill);
+      return;
+    }
+
+    // 环形分档：(内缩起点, 内缩终点, 白膜强度)。外圈最薄，向内逐档回到全值。
+    void band(double outer, double inner, double factor) {
+      final Path ring = Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRRect(shapeOf(outer))
+        ..addRRect(shapeOf(inner));
+      canvas.drawPath(
+        ring,
+        Paint()..shader = _fadedGradient(gradient, factor).createShader(rect),
+      );
+    }
+
+    band(0, 2.0, 0.55);
+    band(2.0, 6.0, 0.70);
+    band(6.0, edgeClear, 0.87);
+    canvas.drawRRect(shapeOf(edgeClear), fill);
+  }
+
+  /// 同一份渐变、整体缩放 alpha。弹层的 tint 都是 [LinearGradient]，
+  /// 其它类型直接原样返回（当前调用面只有 toast 的斜向渐变，且它不开变薄）。
+  static Gradient _fadedGradient(Gradient g, double factor) {
+    if (g is LinearGradient) {
+      return LinearGradient(
+        begin: g.begin,
+        end: g.end,
+        colors: <Color>[
+          for (final Color c in g.colors) c.withValues(alpha: c.a * factor),
+        ],
+        stops: g.stops,
+        tileMode: g.tileMode,
+      );
+    }
+    return g;
+  }
+
+  @override
+  bool shouldRepaint(_GlassFillPainter oldDelegate) =>
+      oldDelegate.radius != radius ||
+      oldDelegate.gradient != gradient ||
+      oldDelegate.edgeClear != edgeClear;
 }

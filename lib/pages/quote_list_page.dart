@@ -313,7 +313,8 @@ class _QuoteListPageState extends State<QuoteListPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // 背景由 AuroraBackground 提供，Scaffold 保持透明才能全屏透出极光
+      // 背景由 AuroraBackground 提供（当前是 GlassPalette.background 的单一实色），
+      // Scaffold 保持透明不盖底
       backgroundColor: Colors.transparent,
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
@@ -324,8 +325,8 @@ class _QuoteListPageState extends State<QuoteListPage>
 
           return Stack(
             children: <Widget>[
-              // 极光是完全静态的：单独切一个图层缓存起来，
-              // 行情跳动时就不必连它一起重绘（它下面还有 8 层径向渐变）
+              // 背景是完全静态的：单独切一个图层缓存起来，行情跳动时
+              // 不必连它一起重绘（极光版下面有 8 层径向渐变，实色版更轻）
               const Positioned.fill(
                 child: RepaintBoundary(child: AuroraBackground()),
               ),

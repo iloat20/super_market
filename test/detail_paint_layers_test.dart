@@ -2,12 +2,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:super_market/widgets/glass.dart';
 
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/services/kline_loader.dart';
 import 'package:super_market/services/rest_client.dart';
-import 'package:super_market/widgets/glass.dart';
 import 'package:super_market/widgets/kline_chart.dart';
 import 'package:super_market/widgets/quote_detail_sheet.dart';
 
