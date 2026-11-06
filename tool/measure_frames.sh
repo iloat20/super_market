@@ -28,7 +28,7 @@ cd "$(dirname "$0")/.."
 
 ADB="${ADB:-adb}"
 DART="${DART:-dart}"
-PKG=supermarket.app
+PKG=app.supermarket
 BUILD="${BUILD:-profile}"
 APK="build/app/outputs/flutter-apk/app-${BUILD}.apk"
 

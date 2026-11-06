@@ -353,6 +353,12 @@ void main() {
     testWidgets('删掉一只后：存档写入、服务层用新列表', (
       WidgetTester tester,
     ) async {
+
+      // 默认订阅已扩到 6 只：800×600 的默认测试视口放不下，末位控件不会被建出来，
+      // 断言与点击都会落空。给足高度（逻辑像素 400×1600），让整个列表可见。
+      tester.view.physicalSize = const Size(400, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       final MemoryKeyValueStore store = MemoryKeyValueStore();
       _SpyFeed? service;
 

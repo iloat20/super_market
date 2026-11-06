@@ -113,11 +113,28 @@ class FileKeyValueStore implements KeyValueStore {
   /// 成员总是把**当时最新的** `_cache` 全量写下去，天然把前面的变更一起带上。
   Future<void> _writeQueue = Future<void>.value();
 
-  Future<File> _file() =>
-      _fileFuture ??= _directoryProvider().then((Directory dir) async {
-        await dir.create(recursive: true);
-        return File('${dir.path}${Platform.pathSeparator}$_fileName');
-      });
+  Future<File> _file() {
+    final Future<File>? cached = _fileFuture;
+    if (cached != null) {
+      return cached;
+    }
+    final Future<File> created = _directoryProvider().then((Directory dir) async {
+      await dir.create(recursive: true);
+      return File('${dir.path}${Platform.pathSeparator}$_fileName');
+    });
+    _fileFuture = created;
+    // 失败必须清场，否则一个已 reject 的 Future 会被 `??=` 永久缓存：
+    // 平台通道没就绪、目录不可写这类**一次性**失败，会变成「本进程内再也
+    // 读写不了存档」，而 `_loading` 那边是「成败都清场、允许重试」的语义
+    // （见 _load）。两处语义必须一致，否则降级行为取决于先撞上哪一个。
+    return created.then(
+      (File file) => file,
+      onError: (Object error, StackTrace stack) {
+        _fileFuture = null;
+        Error.throwWithStackTrace(error, stack);
+      },
+    );
+  }
 
   Future<Map<String, String>> _load() async {
     final Map<String, String>? cached = _cache;
@@ -196,8 +213,27 @@ class FileKeyValueStore implements KeyValueStore {
   @override
   Future<void> write(String key, String value) async {
     final Map<String, String> data = await _load();
+    // 落盘失败时要把这一笔从内存缓存里撤掉：缓存比磁盘「新」会让同一个
+    // 进程内的后续读取看到一份从未保存成功的状态，而 `_enqueueWrite` 排到
+    // 后面的成员会把**当时最新的** `_cache` 全量写下去——那笔没存成的改动
+    // 会被下一次无关的写盘顺手带上，于是「丢没丢」取决于操作顺序。
+    final bool existed = data.containsKey(key);
+    final String? previous = data[key];
     data[key] = value;
-    await _enqueueWrite();
+    try {
+      await _enqueueWrite();
+    } on Object {
+      // 只有在缓存里仍是「我们写进去的那一笔」时才回滚：并发写同一个 key
+      // 时，后到的那笔已经覆盖了它，回滚会连带把别人的改动抹掉。
+      if (data[key] == value) {
+        if (existed) {
+          data[key] = previous!;
+        } else {
+          data.remove(key);
+        }
+      }
+      rethrow;
+    }
   }
 
   /// 把一次全量落盘排进队列；返回的 Future 在**这一次落盘**完成时完成。

@@ -91,7 +91,13 @@ void main() {
     expect(notified, 1);
   });
 
-  testWidgets('列表页渲染 3 行且不 setState', (WidgetTester tester) async {
+  testWidgets('列表页按默认订阅渲染且不 setState', (WidgetTester tester) async {
+
+    // 默认订阅已扩到 6 只：800×600 的默认测试视口放不下，末位控件不会被建出来，
+    // 断言与点击都会落空。给足高度（逻辑像素 400×1600），让整个列表可见。
+    tester.view.physicalSize = const Size(400, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     // 注入一个「不会建连」的服务：不走网络，所以状态稳定停在「已断开」。
     // 之前这里直接 pumpWidget(const QuoteListPage())，页面会真的去连 wss://…，
     // 一旦 AppConfig 里填了真 Token，测试就依赖外网、依赖机器网络状况——
@@ -106,7 +112,12 @@ void main() {
     expect(find.byType(QuoteTile), findsNWidgets(AppConfig.stocks.length));
     expect(find.text(AppConfig.stocks[1].name), findsOneWidget);
     expect(find.text(AppConfig.stocks[1].code), findsOneWidget); // 代码
-    expect(find.text('SH'), findsOneWidget); // 市场角标
+    // 市场角标跟着标的身上的 region 走，不写死 'SH'——默认列表换过三次，
+    // 写死就会在"末位换成深市"时假红一次。
+    // 用 findsWidgets 而不是 findsOneWidget：默认列表里有 3 只深市标的，
+    // 'SZ' 角标本来就会出现多次。断言的是"角标跟着 region 渲染了"，
+    // 不是"这个字符串全局唯一"。
+    expect(find.text(AppConfig.stocks[1].region), findsWidgets);
     // Token 概念已随 iTick 通道整体退役：任何时候都不该再出现凭证提示
     expect(find.textContaining('Token'), findsNothing);
     // 玻璃头部存在；连接状态胶囊与刷新按钮已按产品要求移除，

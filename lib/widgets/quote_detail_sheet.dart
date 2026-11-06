@@ -7,6 +7,7 @@ import '../models/kline.dart';
 import '../models/quote.dart';
 import '../services/kline_loader.dart';
 import '../services/quote_feeds.dart';
+import '../utils/beijing_clock.dart';
 import '../utils/format.dart';
 import 'freshness_ticker.dart';
 import 'glass.dart';
@@ -26,7 +27,13 @@ Future<void> showQuoteDetailSheet(
   required StockConfig stock,
   required ValueNotifier<Quote> quote,
   KlineLoader? loader,
-  DateTime Function() now = DateTime.now,
+  DateTime Function() now = beijingNow,
+  /// 来源名取自**调用方运行期**的 feed（`QuoteFeed.sourceLabel`）。
+  ///
+  /// 用 getter 而不是 String：主备切换可能在弹层打开期间发生，而页脚是
+  /// 跟着行情一起重建的——每次 build 现取，才不会显示一个打开瞬间的快照。
+  /// 默认值是编译期常量，仅为让既有测试不必改签名。
+  String Function() sourceLabel = _defaultSourceLabel,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -37,17 +44,26 @@ Future<void> showQuoteDetailSheet(
     barrierColor: const Color(0x1A0B1220),
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (BuildContext context) =>
-        _QuoteDetailSheet(stock: stock, quote: quote, loader: loader, now: now),
+    builder: (BuildContext context) => _QuoteDetailSheet(
+      stock: stock,
+      quote: quote,
+      loader: loader,
+      now: now,
+      sourceLabel: sourceLabel,
+    ),
   );
 }
+
+/// 没有传 feed 时的兜底：编译期的主力源名（与旧行为一致）
+String _defaultSourceLabel() => QuoteFeeds.label;
 
 class _QuoteDetailSheet extends StatefulWidget {
   const _QuoteDetailSheet({
     required this.stock,
     required this.quote,
     this.loader,
-    this.now = DateTime.now,
+    this.now = beijingNow,
+    this.sourceLabel = _defaultSourceLabel,
   });
 
   final StockConfig stock;
@@ -58,6 +74,9 @@ class _QuoteDetailSheet extends StatefulWidget {
 
   /// 可注入时钟：页脚「收盘快照 / 实时推送」由它算新鲜度，预览要能复现
   final DateTime Function() now;
+
+  /// 运行期来源名（主备切换后会变）
+  final String Function() sourceLabel;
 
   @override
   State<_QuoteDetailSheet> createState() => _QuoteDetailSheetState();
@@ -263,7 +282,11 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
                         now: widget.now,
                       ),
                       const SizedBox(height: 14),
-                      _StatusRow(quote: q, now: widget.now),
+                      _StatusRow(
+                        quote: q,
+                        now: widget.now,
+                        sourceLabel: widget.sourceLabel,
+                      ),
                     ],
                   ),
                 );
@@ -364,15 +387,55 @@ class _ChartSection extends StatelessWidget {
               ? const _ChartSkeleton()
               : (empty || error != null)
               ? _ChartError(error: error, onRetry: onRetry)
-              : KlineChart(
+              : _ChartFade(
                   mode: mode,
-                  bars: bars,
-                  points: points,
-                  prevClose: prevClose,
-                  region: region,
+                  child: KlineChart(
+                    mode: mode,
+                    bars: bars,
+                    points: points,
+                    prevClose: prevClose,
+                    region: region,
+                  ),
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// 切图时的一次性淡入。
+///
+/// ## 为什么不是 `AnimatedSwitcher` 的默认交叉淡化
+///
+/// 图表是重绘大户（`CustomPaint` + 几百根蜡烛）。交叉淡化意味着过渡期间
+/// **两张图同时在树上**，raster 直接翻倍；而这是个 120ms、用户点一下才发生
+/// 的过渡，翻倍的那几帧最容易掉帧。所以这里让旧图立刻消失、新图淡入——
+/// 观感上是"换了一张"，不是"两张叠化"，代价只有一次 `saveLayer`。
+///
+/// ## 为什么用 `key: ValueKey(mode)`
+///
+/// `TweenAnimationBuilder` 换 key 等于换 State：新图从 0 重新淡入，
+/// 旧图直接销毁。不做这个，切回分时的时候会停在上一次的值上不重播。
+///
+/// 稳态零成本：`Opacity` 在 1.0 时会跳过 `saveLayer`，动画结束就不再有开销。
+class _ChartFade extends StatelessWidget {
+  const _ChartFade({required this.mode, required this.child});
+
+  final ChartMode mode;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    // 与 tab 胶囊、太极一致：系统开了「减少动态效果」就直接出终态。
+    final bool reduceMotion = MediaQuery.disableAnimationsOf(context);
+    return TweenAnimationBuilder<double>(
+      key: ValueKey<ChartMode>(mode),
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      builder: (BuildContext context, double t, Widget? child) =>
+          Opacity(opacity: t, child: child),
+      child: child,
     );
   }
 }
@@ -796,10 +859,17 @@ class _Metric extends StatelessWidget {
 
 /// 底部状态：交易状态（停牌/熔断这类异常显性化）+ 行情来源说明
 class _StatusRow extends StatelessWidget {
-  const _StatusRow({required this.quote, required this.now});
+  const _StatusRow({
+    required this.quote,
+    required this.now,
+    required this.sourceLabel,
+  });
 
   final Quote quote;
   final DateTime Function() now;
+
+  /// 运行期来源名（主备切换后会变）
+  final String Function() sourceLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -874,9 +944,7 @@ class _StatusRow extends StatelessWidget {
             // （AppConfig.pollInterval），没有任何推送通道。改成「轮询更新」。
             // 不写死「3 秒」是因为失败退避会把间隔翻倍到 pollBackoffMax，
             // 那正是最需要说清楚「多久更新一次」的时候，写死反而说错。
-            stale
-                ? QuoteFeeds.label
-                : '轮询更新 · ${QuoteFeeds.label}',
+            stale ? sourceLabel() : '轮询更新 · ${sourceLabel()}',
             textAlign: TextAlign.end,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,

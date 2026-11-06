@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../config/app_config.dart';
 import '../models/quote.dart';
 import '../utils/app_log.dart';
+import '../utils/beijing_clock.dart';
 import 'quote_feed.dart';
 import 'rest_client.dart';
 import 'source/polling_source.dart';
@@ -52,7 +53,7 @@ class PollingQuoteFeed implements QuoteFeed {
        ),
        _stocks = List<StockConfig>.unmodifiable(stocks ?? AppConfig.stocks),
        _httpGet = httpGet ?? defaultHttpGetBytes,
-       _now = now ?? DateTime.now,
+       _now = now ?? beijingNow,
        _interval = interval ?? AppConfig.pollInterval,
        _timeout = timeout ?? AppConfig.restTimeout;
 
@@ -238,9 +239,17 @@ class PollingQuoteFeed implements QuoteFeed {
     }
     _busy = true;
     final PollingSource source = _chain[_activeIndex];
+    // 只问这个内核**声明支持**的市场（`PollingSource.markets`）。
+    // 把不支持的标的拼进 URL 换来的是一行 `v_pv_none_match`：解析器跳过它，
+    // 而整批仍有别的票有价，于是这一轮被判「成功」——被跳过的那只从此
+    // 不再更新，且没有任何提示（见 _coverageGap）。
+    final List<StockConfig> targets = _coveredBy(source);
     try {
+      if (targets.isEmpty) {
+        throw _PollFailure('当前内核不覆盖任何订阅市场');
+      }
       final HttpRawResponse res = await _httpGet(
-        source.batchQuoteUri(_stocks),
+        source.batchQuoteUri(targets),
         source.requestHeaders(),
       ).timeout(_timeout);
 
@@ -249,7 +258,7 @@ class PollingQuoteFeed implements QuoteFeed {
       }
       final List<Quote> quotes = source.parseBatchQuotes(
         res.body,
-        stocks: _stocks,
+        stocks: targets,
       );
       if (quotes.isEmpty) {
         // HTTP 200 但一条都解析不出来：报文结构变了，或者全是被过滤的脏数据。
@@ -271,7 +280,12 @@ class PollingQuoteFeed implements QuoteFeed {
     // dispose 与在途请求是并发的（dispose 不等一轮轮询结束）：请求落地时
     // notifier 可能已经释放，继续走只会把「A ValueNotifier was used after
     // being disposed」吞成一条假失败日志。
-    if (_disposed) {
+    //
+    // `_paused` 同理：pause 只停掉了定时器，在途请求照样会落地。不管它的话，
+    // 一次「切后台时正好有请求在飞」会把 pause 刚置的 disconnected 顶回
+    // connected，并继续往后台的 UI 推数据——而契约承诺的是「不保留任何
+    // 后台活动」（quote_feed.dart）。
+    if (_disposed || _paused) {
       return;
     }
     _failStreak = 0;
@@ -279,18 +293,28 @@ class PollingQuoteFeed implements QuoteFeed {
       _backoffLevel = 0;
       AppLog.i('轮询已恢复，退避清零');
     }
-    if (status.value != FeedStatus.connected || lastError.value != null) {
-      AppLog.i('轮询成功：${_chain[_activeIndex].displayName}');
-      lastError.value = null;
+    final String? gap = _coverageGap(_chain[_activeIndex]);
+    if (status.value != FeedStatus.connected || lastError.value != gap) {
+      if (status.value != FeedStatus.connected) {
+        AppLog.i('轮询成功：${_chain[_activeIndex].displayName}');
+      }
+      lastError.value = gap;
       status.value = FeedStatus.connected;
     }
 
+    final int nowMs = _now().millisecondsSinceEpoch;
     final List<Quote> applied = <Quote>[];
     for (final Quote quote in quotes) {
       final String key = StockConfig.keyOf(quote.code, quote.region);
-      final int ms =
-          quote.timestamp?.millisecondsSinceEpoch ??
-          _now().millisecondsSinceEpoch;
+      final int ms = quote.timestamp?.millisecondsSinceEpoch ?? nowMs;
+      // 未来时间戳必须挡在棘轮**之前**：`_lastQuoteMs` 只增不减、没有 TTL，
+      // 一个被 DateTime 归一化出来的「2027 年」脏时间戳会让这只票此后每一轮
+      // 都被判「更旧」而丢弃；而 `isStale` 对负 age 返回「不陈旧」，界面
+      // 于是永久停在旧价、还坚持说这是实时价。
+      if (ms > nowMs + _maxFutureSkew.inMilliseconds) {
+        AppLog.w('丢弃未来时间戳的报价 $key：$ms 比现在晚太多');
+        continue;
+      }
       final int? previous = _lastQuoteMs[key];
       if (previous != null && ms < previous) {
         AppLog.d('丢弃更旧的报价 $key：$ms < $previous（多半是刚切过内核）');
@@ -319,14 +343,23 @@ class PollingQuoteFeed implements QuoteFeed {
     if (_failStreak >= AppConfig.pollFailoverAfter && _chain.length > 1) {
       _failStreak = 0;
       final int from = _activeIndex;
-      _activeIndex = (_activeIndex + 1) % _chain.length;
+      _activeIndex = _nextViableIndex(from);
       if (_activeIndex == 0) {
         _backoffLevel++;
       }
-      AppLog.w(
-        '${_chain[from].displayName} 连续失败 → '
-        '切到 ${_chain[_activeIndex].displayName}',
-      );
+      if (_activeIndex == from) {
+        // 没有「能覆盖全部订阅标的」的备源：不切。切过去会让备源不覆盖的
+        // 那几只票静默冻结，而整批仍被判成功——比继续在主源上退避更糟。
+        AppLog.w(
+          '${_chain[from].displayName} 连续失败，但没有覆盖全部订阅的备源 → '
+          '原地退避 ${currentInterval.inSeconds}s',
+        );
+      } else {
+        AppLog.w(
+          '${_chain[from].displayName} 连续失败 → '
+          '切到 ${_chain[_activeIndex].displayName}',
+        );
+      }
     } else if (_failStreak >= AppConfig.pollFailoverAfter) {
       // 只有一个内核：没有可切的，直接进退避
       _failStreak = 0;
@@ -356,6 +389,37 @@ class PollingQuoteFeed implements QuoteFeed {
     final int factor = 1 << (_backoffLevel.clamp(0, 4));
     final Duration d = _interval * factor;
     return d > AppConfig.pollBackoffMax ? AppConfig.pollBackoffMax : d;
+  }
+
+  /// 低于这个量级的「未来」时间戳按设备时钟偏差处理，不丢弃。
+  ///
+  /// 一天的余量要同时满足两件事：容得下设备时钟不准（分钟级）和服务端写入
+  /// 延迟，又能在「越界月份被 DateTime 归一化成下一年」这类脏值上兜住。
+  static const Duration _maxFutureSkew = Duration(days: 1);
+
+  /// 当前内核声明支持、且订阅里确实存在的那部分标的。
+  List<StockConfig> _coveredBy(PollingSource source) => _stocks
+      .where((StockConfig s) => source.markets.contains(s.region))
+      .toList(growable: false);
+
+  /// 当前内核覆盖不到几只订阅标的；全覆盖时返回 null。
+  String? _coverageGap(PollingSource source) {
+    final int missing = _stocks.length - _coveredBy(source).length;
+    if (missing <= 0) {
+      return null;
+    }
+    return '${source.displayName} 不提供 $missing 只标的的行情，它们会停在旧价';
+  }
+
+  /// 下一个**能覆盖全部订阅标的**的内核下标；都不行时按原顺序轮转。
+  int _nextViableIndex(int from) {
+    for (int step = 1; step <= _chain.length; step++) {
+      final int index = (from + step) % _chain.length;
+      if (_coverageGap(_chain[index]) == null) {
+        return index;
+      }
+    }
+    return (from + 1) % _chain.length;
   }
 
   String _label() =>

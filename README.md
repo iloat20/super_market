@@ -7,7 +7,7 @@
 
 | 项 | 当前值 |
 | --- | --- |
-| 项目 / 包名 | `super_market` / `supermarket.app`（`android/app/build.gradle.kts:10,28`；`com.example.super_market` 时代已结束，见 十「包信息」） |
+| 项目 / 包名 | `super_market` / `app.supermarket`（`android/app/build.gradle.kts`；2026-11-06 由 `supermarket.app` 改名，见 十「包信息」） |
 | 技术栈 | Flutter 3.47.9 / Dart 3.13.7，仅 Android，compileSdk / targetSdk 37 |
 | 行情链路 | 新浪主 + 腾讯备，3s HTTP 轮询；**零凭证、无 WebSocket、无 iTick** |
 | 门禁 | `flutter analyze` 0 issues；`flutter test` **333 通过 + 0 skip**（含 5 张 golden 视觉基线、3 条像素级对比度断言、4 条 3.0x 用例、18 条报价新鲜度用例） |
@@ -2493,7 +2493,7 @@ flutter build apk --release --target-platform android-arm64 \
 
 | 项 | 值 | 证据 |
 | --- | --- | --- |
-| package / namespace | `supermarket.app`（两者一致；2026-11-05 定案） | `build.gradle.kts:13,42` |
+| package / namespace | `app.supermarket`（两者一致；2026-11-06 定案） | `build.gradle.kts` |
 | versionName / versionCode | `1.0.7` / `35` | `pubspec.yaml:4`（`version: 1.0.7+35`；2026-11-05 美股支持版。**此表须随每次升版更新**——上次停在 1.0.1+29，正是 E-02 说的漂移） |
 | compileSdk / targetSdk | `37` / `37`（Android 17） | `build.gradle.kts:16,32` |
 | minSdk | 跟随 `flutter.minSdkVersion` | `build.gradle.kts:31` |

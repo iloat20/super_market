@@ -29,7 +29,12 @@
 ///
 /// 只判断「工作日 + 时段」，不处理法定节假日（需要交易日历，超出 MVP 范围）。
 /// 节假日会显示成「交易中」，这是已知限制，已写进 README。
+///
+/// 美股的时间折算（北京挂钟 → 美东挂钟）不在这里实现：它与日 K 补丁的
+/// 「交易日」是同一个规则，统一放在 `trading_day.dart`，避免两处各写一遍。
 library;
+
+import 'trading_day.dart';
 
 enum MarketSession {
   /// 工作日、开盘前
@@ -118,7 +123,7 @@ enum MarketSession {
   /// 为什么不能直接拿北京的星期判周末：北京周六 03:00 是美东周五 14:00
   /// （盘中）——必须先折算成美东挂钟，再判星期与时段。
   static MarketSession ofUs(DateTime time) {
-    final DateTime et = _toEastern(time);
+    final DateTime et = easternWallClock(time);
     if (et.weekday == DateTime.saturday || et.weekday == DateTime.sunday) {
       return MarketSession.weekend;
     }
@@ -131,41 +136,6 @@ enum MarketSession {
       return MarketSession.trading;
     }
     return MarketSession.closed;
-  }
-
-  /// 北京钟 → 美东挂钟。
-  ///
-  /// 先按夏令时（-12h）折算，看折算结果的日期是否落在夏令时窗口内：
-  /// 在就用它，不在回退到冬令时（-13h）。窗口按 2007 年起的美国规则：
-  /// 3 月第二个周日 02:00 起、11 月第一个周日 02:00 止（美东当地挂钟）。
-  ///
-  /// 换制日（02:00–03:00）折算有 ±1h 歧义，但那远离 09:30/16:00 的
-  /// 时段边界，对判定结果没有影响（见 [ofUs] 注释）。
-  static DateTime _toEastern(DateTime beijing) {
-    final DateTime edt = beijing.subtract(const Duration(hours: 12));
-    return _inUsDst(edt) ? edt : beijing.subtract(const Duration(hours: 13));
-  }
-
-  /// 美东挂钟是否处于夏令时（判定输入本身必须是美东挂钟）。
-  static bool _inUsDst(DateTime et) {
-    if (et.month > 3 && et.month < 11) {
-      return true;
-    }
-    // 3 月：第二个周日（第一个周日 + 7）当天起
-    if (et.month == 3) {
-      return et.day >= _firstSundayOf(et.year, 3) + 7;
-    }
-    // 11 月：第一个周日当天 02:00 止，整天按冬令时算（02:00 前的歧义无关痛痒）
-    if (et.month == 11) {
-      return et.day < _firstSundayOf(et.year, 11);
-    }
-    return false; // 12/1/2 月恒为冬令时
-  }
-
-  /// 某月第一个周日的「日」（Dart `weekday`：周一=1 … 周日=7）。
-  static int _firstSundayOf(int year, int month) {
-    final int weekdayOf1st = DateTime(year, month, 1).weekday;
-    return 1 + (7 - weekdayOf1st) % 7;
   }
 
   /// 按**订阅市场并集**判断当前时段：只要有一个订阅市场在交易，整页就算

@@ -3,6 +3,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../config/app_config.dart';
 import '../models/quote.dart';
+import '../utils/beijing_clock.dart';
 import '../utils/format.dart';
 import 'freshness_ticker.dart';
 import 'glass.dart';
@@ -19,7 +20,7 @@ class QuoteTile extends StatelessWidget {
     required this.stock,
     required this.quote,
     this.onTap,
-    this.now = DateTime.now,
+    this.now = beijingNow,
   });
 
   final StockConfig stock;
@@ -288,30 +289,118 @@ class _CodeText extends StatelessWidget {
   }
 }
 
-/// 价格：外套 FittedBox，空间不够时等比缩小而不是溢出
-class _ScaledPrice extends StatelessWidget {
+/// 价格：外套 FittedBox，空间不够时等比缩小而不是溢出。
+///
+/// ## 为什么价格变化时要"弹一下"
+///
+/// 6 只票一起 3 秒刷一次，光看数字很难发现哪只刚动过——这是**信息**问题，
+/// 不是装饰问题。这里在价格变化时给一个 160ms 的落地缩放（1.06 → 1.0）。
+///
+/// ## 为什么要有阈值（关键）
+///
+/// 行情是**批量轮询**（3 秒一批、六只票一起到），不是逐笔推送。如果只要
+/// "值变了"就弹，六张卡会同时弹——整屏变成 20 次/分钟的节拍器，比不加还糟。
+/// 所以只在**单批变化 ≥ 0.1%** 时才弹：这个量级大致相当于 40 元股票跳动
+/// 4 分钱以上，属于"值得抬头看一眼"的幅度，而不是每次轮询的抖动。
+///
+/// ## 三条边界
+///
+/// 1. 只在「有数据 → 有数据」且过阈值时跳。首帧占位（`--` → 39.20）不跳，
+///    否则页面一出来六张卡一起弹，像故障；
+/// 2. 系统开启「减少动态效果」时不启动，也不建帧（`reduce_motion_test` 会盯）；
+/// 3. 用 `Transform.scale` 而不是改字号/内边距：**纯绘制变换，不改布局**，
+///    所以 FittedBox 的测量、卡片排版、对比度基线全都不受影响。
+class _ScaledPrice extends StatefulWidget {
   const _ScaledPrice({required this.q, required this.alignment});
 
   final Quote q;
   final Alignment alignment;
 
+  /// 触发阈值：单批变化幅度 ≥ 0.1% 才弹。
+  static const double popThreshold = 0.001;
+
+  @override
+  State<_ScaledPrice> createState() => _ScaledPriceState();
+}
+
+class _ScaledPriceState extends State<_ScaledPrice>
+    with SingleTickerProviderStateMixin {
+  static const Duration _duration = Duration(milliseconds: 160);
+  static const double _peakScale = 1.06;
+
+  // `value: 1` 是必须的：控制器的静止态要停在 1.0（原尺寸）。
+  // 默认值是 0，那会让 `_scale` 在没播动画时也是 1.06——页面一出来
+  // 六张卡全是放大的，而且再也回不去。
+  late final AnimationController _pop = AnimationController(
+    vsync: this,
+    duration: _duration,
+    value: 1,
+  );
+
+  late final Animation<double> _scale = Tween<double>(
+    begin: _peakScale,
+    end: 1,
+  ).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOutCubic));
+
+  bool _reduceMotion = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+  }
+
+  @override
+  void didUpdateWidget(_ScaledPrice oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final Quote before = oldWidget.q;
+    final Quote now = widget.q;
+    if (!now.hasData || !before.hasData || now.price == before.price) {
+      return;
+    }
+    if (_reduceMotion || before.price <= 0) {
+      return;
+    }
+    final double moved = (now.price - before.price).abs() / before.price;
+    if (moved >= _ScaledPrice.popThreshold) {
+      _pop.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return FittedBox(
       fit: BoxFit.scaleDown,
-      alignment: alignment,
-      child: Text(
-        q.hasData ? formatPrice(q.price) : '--',
-        maxLines: 1,
-        style: TextStyle(
-          // 24 而不是 28：用户反馈原字号太喧宾夺主；名称 17、价格 24，
-          // 主次还在但不再压得住整张卡
-          fontSize: 24,
-          height: 1.05,
-          fontWeight: FontWeight.w600,
-          letterSpacing: -0.6,
-          color: _accentOf(q),
-          fontFeatures: kTabularFigures,
+      alignment: widget.alignment,
+      child: AnimatedBuilder(
+        animation: _scale,
+        builder: (BuildContext context, Widget? child) {
+          return Transform.scale(
+            scale: _scale.value,
+            // 从右侧锚定：价格右对齐，从中心放大会让它往左"飘"一下
+            alignment: Alignment.centerRight,
+            child: child,
+          );
+        },
+        child: Text(
+          widget.q.hasData ? formatPrice(widget.q.price) : '--',
+          maxLines: 1,
+          style: TextStyle(
+            // 24 而不是 28：用户反馈原字号太喧宾夺主；名称 17、价格 24，
+            // 主次还在但不再压得住整张卡
+            fontSize: 24,
+            height: 1.05,
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.6,
+            color: _accentOf(widget.q),
+            fontFeatures: kTabularFigures,
+          ),
         ),
       ),
     );

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/kline.dart';
 import '../models/quote.dart';
+import '../utils/trading_day.dart';
 import 'glass.dart';
 
 /// 详情页那块走势图的两种形态。
@@ -46,29 +47,34 @@ String? noteFor(double value, double prevClose) {
 /// 为什么不是无脑追加：腾讯的日线**含**当日，同一根再追加一次就会出现
 /// 两根 11-03。所以先比日期——同一天就覆盖，不同天才追加。
 ///
+/// 「日期」是**该市场的交易日**，不是报价时间戳的北京日历日：美股要先折算成
+/// 美东挂钟（见 [tradingDayOf]），否则北京 03:00 的盘中报价会被记成次日，
+/// 凭空多一根"未来棒"。
+///
+/// 也不允许把更旧的一天追加到末尾：报价可能是陈旧的（退后台跨交易日、刚加
+/// 自选、网络失败期间点开详情）。多一根更旧的棒会让序列时间倒退，painter 按
+/// 数组序绘制，最右一根画的是更早那天，MA 在乱序收盘价上求值也全错。
+///
 /// 实时报价里 `open/high/low/price` 正好是当日那根的四个价，`volume` 是
 /// 当日累计量，直接可用；成交量单位为股，与 K 线一致。
 List<Kline> patchTodayBar(List<Kline> bars, Quote quote) {
   if (!quote.hasData || quote.timestamp == null) {
     return bars;
   }
-  final Kline today = Kline(
-    time: DateTime(
-      quote.timestamp!.year,
-      quote.timestamp!.month,
-      quote.timestamp!.day,
-    ),
+  final DateTime today = tradingDayOf(quote.timestamp!, quote.region);
+  final Kline bar = Kline(
+    time: today,
     open: quote.open > 0 ? quote.open : quote.price,
     high: quote.high > 0 ? quote.high : quote.price,
     low: quote.low > 0 ? quote.low : quote.price,
     close: quote.price,
     volume: quote.volume,
   );
-  if (!today.isValid) {
+  if (!bar.isValid) {
     return bars;
   }
   if (bars.isEmpty) {
-    return <Kline>[today];
+    return <Kline>[bar];
   }
 
   final DateTime lastDay = DateTime(
@@ -76,21 +82,25 @@ List<Kline> patchTodayBar(List<Kline> bars, Quote quote) {
     bars.last.time.month,
     bars.last.time.day,
   );
-  if (lastDay == today.time) {
+  // 更旧的报价：序列只能时间不减，宁可不补也不能倒着长一根
+  if (today.isBefore(lastDay)) {
+    return bars;
+  }
+  if (lastDay == today) {
     // 同一天：用实时值覆盖（接口给的当日 bar 可能是几分钟前的快照）
     return <Kline>[
       ...bars.sublist(0, bars.length - 1),
       Kline(
-        time: today.time,
+        time: today,
         open: bars.last.open, // 开盘价以 K 线为准，报价的开盘价偶尔为 0
-        high: math.max(bars.last.high, today.high),
-        low: today.low < bars.last.low ? today.low : bars.last.low,
-        close: today.close,
-        volume: today.volume > 0 ? today.volume : bars.last.volume,
+        high: math.max(bars.last.high, bar.high),
+        low: bar.low < bars.last.low ? bar.low : bars.last.low,
+        close: bar.close,
+        volume: bar.volume > 0 ? bar.volume : bars.last.volume,
       ),
     ];
   }
-  return <Kline>[...bars, today];
+  return <Kline>[...bars, bar];
 }
 
 /// 用最新价补分时线的最后一个点。

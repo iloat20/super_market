@@ -211,6 +211,14 @@ class TencentSource implements PollingSource {
     if (v.contains(null)) {
       return null;
     }
+    // 范围必须钉死：`DateTime` 构造对超界值**不抛**，会把 13 月归一化成
+    // 下一年、把 25 点归一化成次日——脏行必须在这里判死。新浪侧早有这道
+    // 校验（sina_source.dart 的 `_parseDateTime`），只有腾讯这条路漏了；
+    // 而漏掉的后果不是「这一行解析失败」，是一个**未来时间戳**进入
+    // `PollingQuoteFeed._lastQuoteMs` 那只只增不减的棘轮。
+    if (!_isPlausible(v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!)) {
+      return null;
+    }
     return DateTime(v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!);
   }
 
@@ -232,8 +240,33 @@ class TencentSource implements PollingSource {
     if (v.contains(null)) {
       return null;
     }
+    if (!_isPlausible(v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!)) {
+      return null;
+    }
     return DateTime(v[0]!, v[1]!, v[2]!, v[3]!, v[4]!, v[5]!);
   }
+
+  /// 年月日时分秒是否在合法范围内（与新浪侧同一组界）。
+  static bool _isPlausible(
+    int year,
+    int month,
+    int day,
+    int hour,
+    int minute,
+    int second,
+  ) =>
+      year >= 2000 &&
+      year <= 2100 &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= 31 &&
+      hour >= 0 &&
+      hour <= 23 &&
+      minute >= 0 &&
+      minute <= 59 &&
+      second >= 0 &&
+      second <= 59;
 
   static double? _num(String raw) {
     if (raw.isEmpty) {

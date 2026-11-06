@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
 import 'package:flutter/material.dart';
 
+import '../utils/beijing_clock.dart';
 import '../utils/market_session.dart';
 
 /// 圆形太极徽标（页头身份图标）。
@@ -32,7 +33,7 @@ import '../utils/market_session.dart';
 class TaijiMark extends StatefulWidget {
   const TaijiMark({
     super.key,
-    this.now = DateTime.now,
+    this.now = beijingNow,
     this.size = 36,
     this.regions = const <String>['SH', 'SZ'],
     this.ticks,

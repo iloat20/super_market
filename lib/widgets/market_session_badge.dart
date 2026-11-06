@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../utils/beijing_clock.dart';
 import '../utils/market_session.dart';
 import '../utils/lifecycle_pause.dart';
 import 'glass.dart';
@@ -22,7 +23,7 @@ import 'glass.dart';
 class MarketSessionBadge extends StatefulWidget {
   const MarketSessionBadge({
     super.key,
-    this.now = DateTime.now,
+    this.now = beijingNow,
     this.regions = const <String>[],
   });
 
@@ -30,7 +31,7 @@ class MarketSessionBadge extends StatefulWidget {
   ///
   /// 为什么需要：角标文字直接决定截图像素，而它读的是墙钟——于是同一份代码
   /// 在 08:30 的 golden 是「盘前」、09:20 是「集合竞价」，预览图会自己失效。
-  /// 生产环境走 DateTime.now，视觉预览里钉死一个时刻。
+  /// 生产环境走 beijingNow（与报文时间戳同域），视觉预览里钉死一个时刻。
   final DateTime Function() now;
 
   /// 当前订阅的市场集合（`SH` / `SZ` / `HK`），由页面传入。

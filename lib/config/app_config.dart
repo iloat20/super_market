@@ -79,13 +79,21 @@ abstract final class AppConfig {
   /// （`WatchlistRepository.load`）。所以改这里不会动到已有用户的列表——
   /// 反过来说，想在老设备上换股票，得在界面里改，不是改代码。
   ///
-  /// 2026-11-05 按用户的实际自选换成这四只（原为平安银行/贵州茅台/五粮液）。
-  /// 长鑫科技 688825 是 2026-07-27 上市的科创板 DRAM 厂，代码别写成 688xxx 以外。
+  /// 2026-11-06 **包名从 `supermarket.app` 改成 `app.supermarket`**，等于换了
+  /// 应用身份：旧包的 `getApplicationSupportDirectory()` 跨 UID 读不到，存档
+  /// 无法迁移。所以把改名前设备上真实的 5 只自选搬到这里当默认值——否则新包
+  /// 首启会退回上一版那四只（含已从自选删掉的长鑫科技），看起来像"数据丢了"。
+  ///
+  /// 同日用户删掉了费哲金融服务（FISV），这里同步去掉：默认值要和"你现在
+  /// 真正在看的列表"一致，否则每次全新安装都会把用户删过的票带回来一次。
+  ///
+  /// 这条注释是留证：默认值不是随手写的，是某一天设备状态的快照。
   static const List<StockConfig> stocks = <StockConfig>[
     StockConfig(code: '000651', name: '格力电器', region: 'SZ'),
-    StockConfig(code: '688825', name: '长鑫科技', region: 'SH'),
     StockConfig(code: '000933', name: '神火股份', region: 'SZ'),
     StockConfig(code: '01378', name: '中国宏桥', region: 'HK'),
+    StockConfig(code: '000792', name: '盐湖股份', region: 'SZ'),
+    StockConfig(code: 'PDD', name: '拼多多', region: 'US', exchange: 'NASDAQ'),
   ];
 
   /// 公开源（新浪 / 腾讯）的订阅上限。

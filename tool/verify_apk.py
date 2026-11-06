@@ -106,6 +106,34 @@ def read_target_sdk(apk: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _read_cleartext_policy(apk: str, res_entries: list[str]) -> str | None:
+    """读出包里那份 network security config 的 cleartextTrafficPermitted 取值。
+
+    资源路径会被 AGP 缩短（res/xml/network_security_config.xml → res/8G.xml），
+    靠文件名找必然失效；所以先按字符串池定位候选，再用 aapt2 解出真实取值。
+    返回 "true" / "false" / None（读不到，例如缺 aapt2）。
+    """
+    import subprocess
+
+    aapt2 = _find_aapt2()
+    if aapt2 is None:
+        return None
+    for entry in res_entries:
+        try:
+            out = subprocess.run(
+                [aapt2, "dump", "xmltree", "--file", entry, apk],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        m = re.search(r"cleartextTrafficPermitted=[\"']?(\w+)", out)
+        if m:
+            return m.group(1)
+    return None
+
+
 def read_config_token() -> str:
     """从 app_config.dart 里读当前 Token，避免在脚本里硬编码密钥。"""
     try:
@@ -191,6 +219,59 @@ def main(argv: list[str]) -> int:
         failed.append(
             "包里带着 kotlin/*.kotlin_builtins 等编译期资源：检查 "
             "android/app/build.gradle.kts 的 packaging.resources.excludes"
+        )
+
+    # ---- 3c. 传输层：清单必须挂 networkSecurityConfig，且配置里真的禁了明文 ----
+    #
+    # 为什么查二进制清单而不是查源码：源码写了但没挂到 <application> 上，
+    # 编译一样过、装上也一样跑，只有这里看得出来。资源路径会被 AGP 缩短
+    # （res/xml/network_security_config.xml → res/4B.xml），所以不能按文件名找，
+    # 只能在清单字符串池和 res/*.xml 里找属性名。
+    # 注意：这份配置只管原生 HTTP 栈，管不到 dart:io 的行情请求 —— 那层由
+    # lib/services/rest_client.dart 的 requireHttps() 强制（见 transport_security_test）。
+    manifest_raw = z.read("AndroidManifest.xml")
+    nsc_in_manifest = "networkSecurityConfig".encode("utf-16-le") in manifest_raw
+    cleartext_attr = "cleartextTrafficPermitted"
+    nsc_resources: list[str] = []
+    for n in names:
+        if not (n.startswith("res/") and n.endswith(".xml")):
+            continue
+        body = z.read(n)
+        if (
+            cleartext_attr.encode("utf-8") in body
+            or cleartext_attr.encode("utf-16-le") in body
+        ):
+            nsc_resources.append(n)
+    policy = _read_cleartext_policy(apk, nsc_resources)
+
+    if policy is None:
+        tls_ok = None  # 读不出取值：不冒充通过，降级为警告
+    else:
+        tls_ok = nsc_in_manifest and policy == "false"
+
+    print(
+        f"传输   : {OK if tls_ok else (BAD if tls_ok is False else '?')} 禁明文配置"
+        f"（清单{'已挂' if nsc_in_manifest else '未挂'}，"
+        f"cleartext={policy or '未检出'}）"
+    )
+    if not nsc_in_manifest:
+        failed.append(
+            "清单没有 networkSecurityConfig —— 检查 "
+            "android/app/src/main/AndroidManifest.xml 的 <application> 属性"
+        )
+    elif not nsc_resources:
+        failed.append(
+            "清单挂了 networkSecurityConfig 但包里找不到对应资源："
+            "检查 res/xml/network_security_config.xml 是否被 shrinkResources 剔掉"
+        )
+    elif policy == "true":
+        failed.append(
+            "network security config 允许了明文（cleartextTrafficPermitted=true）"
+        )
+    elif policy is None:
+        warned.append(
+            "未能校验 cleartextTrafficPermitted 的取值（缺 aapt2？）——"
+            "源码侧由 test/transport_security_test.dart 守着"
         )
 
     # ---- 4. JNI 关键类必须被保留，否则 release 包启动即崩 ----

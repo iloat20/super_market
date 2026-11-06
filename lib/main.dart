@@ -3,10 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'config/app_dependencies.dart';
+import 'config/app_theme.dart';
 import 'pages/quote_list_page.dart';
 import 'services/quote_feeds.dart';
 import 'utils/app_log.dart';
 import 'utils/error_hooks.dart';
+import 'utils/exit_diagnostics.dart';
 import 'utils/perf_probe.dart';
 
 Future<void> main() async {
@@ -18,6 +20,11 @@ Future<void> main() async {
 
   // 帧耗时探针：只在 --dart-define=PERF_LOG=true 的构建里注册
   installFrameProbe();
+
+  // 退出归因：首帧之后读一次「上次进程怎么死的」（Android 17 的
+  // MemoryLimiter 只会留一条 ApplicationExitInfo，不产生崩溃堆栈）。
+  // 必须放在 runApp 之前注册、但实际执行在首帧之后——不占冷启动关键路径。
+  installExitDiagnostics();
 
   // 日志前缀跟着数据源走，避免「日志说 iTick、实际连别家」
   AppLog.tag = QuoteFeeds.label;
@@ -73,17 +80,9 @@ class SuperMarketApp extends StatelessWidget {
     return MaterialApp(
       title: '超级市场',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        colorSchemeSeed: const Color(0xFFE03A2F),
-        // 数字/拉丁走 Inter（SF Pro 的开源近似，OFL 许可可打包安卓），
-        // 中文逐字符回退系统字体（MIUI/鸿蒙黑体）——引擎自动完成
-        fontFamily: 'Inter',
-        // 页面自己画背景，Scaffold 不能盖一层不透明底
-        scaffoldBackgroundColor: Colors.transparent,
-        splashFactory: NoSplash.splashFactory,
-      ),
+      // 主题抽到 config/app_theme.dart：Widget Previews 必须和真机共用同一份，
+      // 否则预览会显示一个"和手机上不一样"的效果（见该文件注释）。
+      theme: buildSuperMarketTheme(),
       // 液态玻璃包是 Material-free 的：不垫一层透明 Material，
       // 它的文字/图标没有 Material 祖先会按裸 widgets 渲染
       builder: (BuildContext context, Widget? child) {

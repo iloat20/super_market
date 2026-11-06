@@ -34,12 +34,34 @@ class AppDependencies {
   /// 只构造对象、不触发读盘或网络；`path_provider` 平台通道要等页面
   /// `initState` 之后的首帧回调才会用到。
   factory AppDependencies.production() {
-    final KeyValueStore store = FileKeyValueStore();
+    // 两个文件，两种生命周期——这是本节唯一需要解释的决定：
+    //
+    // | 内容 | 生命周期取决于 | 文件名 |
+    // | --- | --- | --- |
+    // | 订阅列表（用户数据） | 用户 | `user_state.json`（与数据源无关） |
+    // | 股票目录缓存（派生数据） | 数据源格式 | `${QuoteFeeds.id}_state.json` |
+    //
+    // 原来两者同住 `${QuoteFeeds.id}_state.json`：换主力源＝换文件名＝
+    // 读不到自选，且没有任何提示（`local_store.dart` 的 `fileName` 注释
+    // 只为目录缓存的格式隔离辩护，用户数据是被顺带绑上去的）。
+    final KeyValueStore userStore = userStoreFile();
+    final KeyValueStore sourceCache = sourceCacheFile();
     return AppDependencies(
-      store: store,
-      watchlistRepository: WatchlistRepository(store),
-      symbolDirectory: SymbolDirectory(store: store),
+      store: userStore,
+      watchlistRepository: WatchlistRepository(
+        userStore,
+        // 旧版把自选写在了带源 id 的文件里，这里给它一次迁移的机会
+        legacyStore: sourceCache,
+      ),
+      symbolDirectory: SymbolDirectory(store: sourceCache),
       klineLoader: KlineLoader(),
     );
   }
+
+  /// 用户数据文件（自选列表）：**不带**数据源 id。
+  static KeyValueStore userStoreFile() =>
+      FileKeyValueStore(fileName: 'user_state.json');
+
+  /// 派生数据文件（股票目录缓存）：带数据源 id，换源不读旧格式。
+  static KeyValueStore sourceCacheFile() => FileKeyValueStore();
 }

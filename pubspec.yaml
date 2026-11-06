@@ -16,6 +16,12 @@ dependencies:
     sdk: flutter
   # 应用私有目录：用来缓存订阅列表（<1KB）和股票目录（约 195KB）
   path_provider: ^2.1.6
+  # 直接调 Android API（ApplicationExitInfo），省掉 MethodChannel 的 Kotlin 壳。
+  # 这两个包**本来就在依赖树里**（path_provider_android 经 jni_flutter 使用），
+  # 所以显式声明不增加包体积、不新增 .so —— libdartjni.so 早已在 APK 内。
+  # 显式写出来是为了满足 depend_on_referenced_packages：直接 import 就必须直接依赖。
+  jni: ^1.1.2
+  jni_flutter: ^1.0.4+1
 
 dev_dependencies:
   flutter_test:

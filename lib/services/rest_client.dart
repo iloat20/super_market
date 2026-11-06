@@ -91,6 +91,44 @@ typedef HttpGetBytes = Future<HttpRawResponse> Function(
 /// 一次卡 30s 会让后面所有轮询排队。
 const int _maxRawBytes = 512 * 1024;
 
+/// 传输层协议闸门：**只允许 https**。
+///
+/// ## 为什么闸门必须在这里，而不是靠 Android 的配置
+///
+/// `network_security_config.xml` 由平台的 HTTP 栈（HttpURLConnection /
+/// OkHttp / Cronet / WebView）执行，而本 App 的行情请求走 `dart:io` 的
+/// `HttpClient`——它用自己的 BoringSSL 和裸 socket，**不经过
+/// NetworkSecurityPolicy**。也就是说 `cleartextTrafficPermitted="false"`
+/// 对这里的请求一行都不生效。所以"只走 TLS"这件事，唯一能被强制的位置
+/// 是发起请求之前这一行。
+///
+/// ## 它改变的是什么
+///
+/// 现状是所有数据源都已经用 `Uri.https(...)` 构造（`lib/` 下没有任何
+/// `http://` 字面量）。这个函数把"碰巧都是 https"变成"非 https 一律发不出去"：
+/// 将来加数据源时写错 scheme，会当场炸在本地测试里，而不是安静地发一次明文。
+///
+/// ## 已知残留缺口（不假装没有）
+///
+/// `dart:io` 的 `HttpClient` 默认跟随重定向，且**没有**"禁止降级到 http"的开关。
+/// 若某个源返回 `301 https → http`，本函数拦不住。三个源目前都不重定向
+/// （实网探针可证），故按现状接受；将来真出现重定向，再谈 `followRedirects = false`
+/// 或换传输层，不要提前为它加复杂度。
+///
+/// 抛 [ArgumentError] 而不是返回 null：调用方写错 scheme 属于**编码错误**，
+/// 应该在开发期就炸，不该被当成一次可重试的网络失败吞掉。
+@visibleForTesting
+Uri requireHttps(Uri uri) {
+  if (uri.scheme != 'https') {
+    throw ArgumentError.value(
+      uri,
+      'uri',
+      '只允许 https：明文或非 TLS 的 scheme 一律拒绝（见 requireHttps 的说明）',
+    );
+  }
+  return uri;
+}
+
 /// 共享的 `HttpClient`（**复用 TCP / TLS 连接**）。
 ///
 /// 为什么不「每次请求新建一个再 close」——这是实测出来的，不是洁癖：
@@ -144,9 +182,11 @@ Future<HttpRawResponse> defaultHttpGetBytes(
   Uri uri,
   Map<String, String> headers,
 ) async {
+  // 闸门放在 try 之前：scheme 写错是编码错误，不该被当成可重试的网络失败。
+  final Uri target = requireHttps(uri);
   try {
     final HttpClientRequest req = await _httpClient
-        .getUrl(uri)
+        .getUrl(target)
         .timeout(AppConfig.restTimeout);
     req.headers.set(HttpHeaders.acceptHeader, '*/*');
     headers.forEach(req.headers.set);
@@ -203,9 +243,10 @@ Future<HttpJsonResponse> defaultHttpGet(
   Uri uri,
   Map<String, String> headers,
 ) async {
+  final Uri target = requireHttps(uri);
   try {
     final HttpClientRequest req = await _httpClient
-        .getUrl(uri)
+        .getUrl(target)
         .timeout(AppConfig.restTimeout);
     req.headers.set(HttpHeaders.acceptHeader, 'application/json');
     headers.forEach(req.headers.set);

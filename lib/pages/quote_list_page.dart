@@ -14,6 +14,7 @@ import '../services/quote_feed.dart';
 import '../services/quote_feeds.dart';
 import '../services/symbol_directory.dart';
 import '../services/watchlist_repository.dart';
+import '../utils/beijing_clock.dart';
 import '../utils/format.dart';
 import '../utils/frame_rate.dart';
 import '../utils/haptics.dart' as haptics;
@@ -224,11 +225,33 @@ class _QuoteListPageState extends State<QuoteListPage>
       return;
     }
 
+    final List<StockConfig> previous = _stocks;
     setState(() {
       _stocks = next;
       _syncNotifiers();
     });
-    await _watchlist.save(next);
+    final bool saved = await _watchlist.save(next);
+    if (!saved) {
+      // 存盘失败必须**当场**回退并说明：原来这里 await 一个吞掉异常的
+      // `save`，界面按「已提交」推进，用户要到下次启动才发现自选回退。
+      // 宁可现在把改动撤回去（界面 = 磁盘 = 真相），也不要给一个
+      // 只有重启才暴露的假成功。
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _stocks = previous;
+        _syncNotifiers();
+      });
+      _service.updateStocks(previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('订阅未能保存到本地，已撤回这次修改'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
     _service.updateStocks(next);
   }
 
@@ -280,8 +303,12 @@ class _QuoteListPageState extends State<QuoteListPage>
   ///
   /// 页头秒表、交易时段角标、太极、卡片「快照」角标、详情页来源说明
   /// 必须看到同一个时刻，否则预览里会出现「角标说已收盘、卡片说实时」
-  /// 这种自相矛盾；生产环境走 [DateTime.now]。
-  DateTime Function() get _clock => widget.clock ?? DateTime.now;
+  /// 这种自相矛盾；生产环境走 [beijingNow]。
+  ///
+  /// **不是** `DateTime.now`：行情时间戳来自报文，是北京钟点、且被解析成
+  /// 「本地时区」的 DateTime。设备不在 UTC+8 时，两者的差值会整体偏移
+  /// 若干小时（见 `utils/beijing_clock.dart`），新鲜度与时段判定一起错。
+  DateTime Function() get _clock => widget.clock ?? beijingNow;
 
   @override
   Widget build(BuildContext context) {
@@ -419,6 +446,11 @@ class _QuoteListPageState extends State<QuoteListPage>
                       stock: stock,
                       quote: notifier,
                       loader: widget.klineLoader,
+                      // 来源名必须读**运行期**的 feed：主备切换是静默的，
+                      // 弹层若用编译期常量，切到腾讯后页脚仍写「新浪财经」
+                      // （`QuoteFeed.sourceLabel` 这个接口本来就是为此存在的，
+                      // 之前全仓没有生产消费点）。
+                      sourceLabel: () => _service.sourceLabel,
                       now: _clock,
                     ),
                   );
@@ -479,7 +511,7 @@ class _QuoteListPageState extends State<QuoteListPage>
                 child: Padding(
                   padding: const EdgeInsets.all(6),
                   child: TaijiMark(
-                    now: widget.clock ?? DateTime.now,
+                    now: _clock,
                     regions: _stocks.map((StockConfig s) => s.region).toList(),
                     // 行情到达才转一格；没有数据就彻底静止（P1-5）
                     ticks: _quoteTicks,
@@ -499,7 +531,7 @@ class _QuoteListPageState extends State<QuoteListPage>
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
-                      child: _ClockTitle(now: widget.clock ?? DateTime.now),
+                      child: _ClockTitle(now: _clock),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -512,7 +544,7 @@ class _QuoteListPageState extends State<QuoteListPage>
                         // 角标本身已经按订阅市场并集判定时段，前缀是冗余信息
                         Flexible(
                           child: MarketSessionBadge(
-                            now: widget.clock ?? DateTime.now,
+                            now: _clock,
                             // 与太极同一份订阅市场并集：混合 A+H 时
                             // 15:00–16:10 港股还在交易，角标不能写「已收盘」
                             regions: _stocks

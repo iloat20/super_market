@@ -78,6 +78,12 @@ Widget _host(Widget child) => MaterialApp(
 
 void main() {
   testWidgets('改订阅列表后，未改动标的的报价必须原样保留', (WidgetTester tester) async {
+
+    // 默认订阅已扩到 6 只：800×600 的默认测试视口放不下，末位控件不会被建出来，
+    // 断言与点击都会落空。给足高度（逻辑像素 400×1600），让整个列表可见。
+    tester.view.physicalSize = const Size(400, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final MemoryKeyValueStore store = MemoryKeyValueStore();
     late ValueChanged<List<Quote>> pushQuotes;
 

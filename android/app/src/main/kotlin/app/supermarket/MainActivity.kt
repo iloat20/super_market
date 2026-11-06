@@ -1,4 +1,4 @@
-package supermarket.app
+package app.supermarket
 
 import android.hardware.display.DisplayManager
 import android.os.Build

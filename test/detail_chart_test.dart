@@ -163,6 +163,36 @@ void main() {
     expect(chart.points, isEmpty);
   });
 
+  testWidgets('切图有一次 120ms 淡入（只淡入，不交叉淡化）', (WidgetTester tester) async {
+    await _open(tester, loader: _loader(intradayOk: true, dailyOk: true));
+
+    await tester.tap(find.text('日K'));
+    // 两帧：第一帧走 setState 进 loading，第二帧假 loader 的 Future 落地、图建出来
+    await tester.pump();
+    await tester.pump();
+
+    final Finder fade = find
+        .ancestor(of: find.byType(KlineChart), matching: find.byType(Opacity))
+        .first;
+    expect(
+      tester.widget<Opacity>(fade).opacity,
+      lessThan(0.2),
+      reason: '新图必须从接近透明开始，否则就是瞬切',
+    );
+
+    await tester.pump(const Duration(milliseconds: 60));
+    final double mid = tester.widget<Opacity>(fade).opacity;
+    expect(mid, greaterThan(0.2), reason: '60ms 时应当已经过半');
+    expect(mid, lessThan(1), reason: '60ms 时还没到终态');
+
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Opacity>(fade).opacity,
+      1,
+      reason: '稳态必须是 1.0 —— Opacity 为 1 时 Flutter 会跳过 saveLayer，不再有开销',
+    );
+  });
+
   testWidgets('拉不到走势 → 一行「点此重试」，八项指标照常显示',
       (WidgetTester tester) async {
     await _open(tester, loader: _loader(intradayOk: false, dailyOk: false));
@@ -201,7 +231,23 @@ void main() {
         tester,
         loader: _usLoader(dailyOk: true),
         stock: kApple,
-        quote: _quote(code: 'AAPL', region: 'US', price: 349.51),
+        // 北京 11-05 03:30 = 美东 11-04 14:30（冬令时，盘中）——报价与末根
+        // 在**美东交易日**口径下是同一天。这是美股唯一正确的重叠方式：
+        // 北京日期（11-05）比美东交易日（11-04）大一天，直接拿北京日历日
+        // 当键会多出一根 11-05 的"未来棒"。
+        quote: Quote(
+          code: 'AAPL',
+          region: 'US',
+          price: 349.99,
+          change: 8.42,
+          changePercent: 2.46,
+          previousClose: 341.57,
+          open: 341.57,
+          high: 354.50,
+          low: 340.99,
+          volume: 89637749,
+          timestamp: DateTime(2026, 11, 5, 3, 30),
+        ),
       );
 
       // 分时对美股没有入口：收盘时段必空，不给一个注定失败的 tab
@@ -212,16 +258,24 @@ void main() {
       expect(chart.mode, ChartMode.daily, reason: '美股默认打开日 K，不是注定为空的分时');
       expect(chart.region, 'US');
       // 腾讯日线（量是股，真探针数值，×100 会变成 8963774900）：
-      // fixture 给了 2 根（11-03 / 11-04），实时报价是 11-03 的 →
-      // patchTodayBar 会再拼一根「今日」棒（与 A/H 同一套补丁语义）
-      expect(chart.bars.length, 3);
+      // fixture 给了 2 根（11-03 / 11-04），报价属美东 11-04 →
+      // 覆盖 11-04 那根，**不追加**（长度仍是 2，不是 3）。
+      expect(chart.bars.length, 2, reason: '同一交易日只能覆盖，不能凭空多一根');
       expect(chart.bars.first.close, 331.90);
-      expect(chart.bars[1].volume, 89637749);
-      expect(chart.bars.last.close, 349.51, reason: '末根收盘被实时价补上');
+      expect(chart.bars[0].time, DateTime(2026, 11, 3));
+      expect(chart.bars[1].time, DateTime(2026, 11, 4), reason: '交易日是美东 11-04');
+      expect(
+        chart.bars[1].time.isAfter(chart.bars[0].time),
+        isTrue,
+        reason: '时间必须单调递增，最右一根就是最后一根',
+      );
+      expect(chart.bars.last.open, 341.570, reason: '开盘价仍以 K 线为准');
+      expect(chart.bars.last.close, 349.99, reason: '末根收盘被实时价覆盖（349.510 → 349.99）');
+      expect(chart.bars[1].volume, 89637749, reason: '量是股，不是手（×100 会是 8963774900）');
 
       // 指标区照常
       expect(find.text('今开'), findsOneWidget);
-      expect(find.text('349.51'), findsOneWidget);
+      expect(find.text('349.99'), findsOneWidget);
     });
 
     testWidgets('日 K 也拉不到 → 整个走势区块不显示（无占位、无 tab）', (

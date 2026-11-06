@@ -59,6 +59,7 @@ import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/kline.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/pages/quote_list_page.dart';
+import 'package:super_market/preview/widget_previews.dart';
 import 'package:super_market/services/kline_loader.dart';
 import 'package:super_market/services/local_store.dart';
 import 'package:super_market/services/quote_feed.dart';
@@ -104,20 +105,6 @@ const List<Quote> _kQuotes = <Quote>[
     volume: 10327200,
     turnover: 400120000.00,
   ),
-  // 跌：绿 —— 长鑫科技（科创板，688 开头）
-  Quote(
-    code: '688825',
-    region: 'SH',
-    price: 40.88,
-    change: -0.84,
-    changePercent: -2.01,
-    previousClose: 41.72,
-    open: 40.90,
-    high: 41.30,
-    low: 40.50,
-    volume: 2604417,
-    turnover: 106470000.00,
-  ),
   // 涨：红 —— 神火股份
   Quote(
     code: '000933',
@@ -145,6 +132,34 @@ const List<Quote> _kQuotes = <Quote>[
     low: 20.30,
     volume: 18234000,
     turnover: 381200000.00,
+  ),
+  // 跌：绿 —— 盐湖股份（深市，与前两只同为 SZ，顺便覆盖"角标重复"）
+  Quote(
+    code: '000792',
+    region: 'SZ',
+    price: 23.25,
+    change: -0.22,
+    changePercent: -0.94,
+    previousClose: 23.47,
+    open: 23.50,
+    high: 23.62,
+    low: 23.11,
+    volume: 15320000,
+    turnover: 356100000.00,
+  ),
+  // 涨：红 —— 拼多多（美股，字母代码）
+  Quote(
+    code: 'PDD',
+    region: 'US',
+    price: 83.95,
+    change: 1.80,
+    changePercent: 2.19,
+    previousClose: 82.15,
+    open: 82.40,
+    high: 84.30,
+    low: 82.10,
+    volume: 4210000,
+    turnover: 353300000.00,
   ),
 ];
 
@@ -544,6 +559,35 @@ Future<void> _expectGolden(WidgetTester tester, String name) async {
   );
 }
 
+/// 把一个 `@Preview` 函数当普通 widget 渲染一遍。
+///
+/// 视口与 golden 一致（390×844 @2x），这样溢出判定和真机是同一套约束；
+/// 字号倍率通过**外壳内部**的 MediaQuery 注入（MaterialApp 自己会插一层
+/// MediaQuery，放在外壳外面会被它覆盖掉）。
+Future<void> _pumpPreview(
+  WidgetTester tester,
+  Widget Function() build, {
+  double textScale = 1,
+}) async {
+  tester.view.physicalSize = _kScreen * _kDpr;
+  tester.view.devicePixelRatio = _kDpr;
+  addTearDown(tester.view.reset);
+
+  final Widget content = textScale == 1
+      ? build()
+      : Builder(
+          builder: (BuildContext context) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: build(),
+          ),
+        );
+
+  await tester.pumpWidget(previewShell(content));
+  await _frames(tester, 4);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -594,5 +638,40 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await _frames(tester, 10);
     await _expectGolden(tester, 'watchlist');
+  });
+
+  // ==================== Widget Previews 自检 ====================
+  //
+  // `@Preview` 是**没有断言**的：wrapper 写错、参数不合法、布局溢出，
+  // 预览面板只会"少一张图"，不会告诉你为什么。所以把 lib/preview 里那几个
+  // 函数当普通 widget 在这里渲一遍，让构建异常和溢出在 `flutter test` 里
+  // 就暴露。
+  //
+  // 与 golden 的分工：golden 管"像素有没有变"，这里管"还画不画得出来"。
+  group('Widget Previews 可渲染', () {
+    _previewTest('行情卡片：上涨 / 下跌 / 停牌 / 大字号', (WidgetTester tester) async {
+      await _pumpPreview(tester, quoteTileUp);
+      expect(tester.takeException(), isNull);
+      expect(find.text('39.17'), findsOneWidget);
+
+      await _pumpPreview(tester, quoteTileDown);
+      expect(tester.takeException(), isNull);
+      expect(find.text('38.23'), findsOneWidget);
+
+      await _pumpPreview(tester, quoteTileSuspended);
+      expect(tester.takeException(), isNull);
+      expect(find.text('停牌'), findsOneWidget);
+
+      // 1.3× 字号：卡片里的 FittedBox 与省略号必须兜住，不能溢出
+      await _pumpPreview(tester, quoteTileLargeText, textScale: 1.3);
+      expect(tester.takeException(), isNull);
+      expect(find.text('1234.56'), findsOneWidget);
+    });
+
+    _previewTest('角标：盘中', (WidgetTester tester) async {
+      await _pumpPreview(tester, marketSessionBadgeLive);
+      expect(tester.takeException(), isNull);
+      expect(find.text('交易中'), findsOneWidget);
+    });
   });
 }

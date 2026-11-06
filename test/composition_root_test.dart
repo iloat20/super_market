@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:super_market/config/app_dependencies.dart';
+import 'package:super_market/services/local_store.dart';
 
 /// A11 最小版（S3b）：组合根必须上移到 `main()`。
 ///
@@ -31,12 +33,35 @@ void main() {
         reason: '打开详情弹层时必须把注入的 loader 传下去');
   });
 
-  test('依赖容器：仓库与目录共享同一个 store 实例', () {
-    final File file = File('lib/config/app_dependencies.dart');
-    expect(file.existsSync(), isTrue,
-        reason: 'R-02 的实例池修复要求 repo 与 directory 用同一 store');
-    final String src = file.readAsStringSync();
-    expect(src, contains('WatchlistRepository(store)'));
-    expect(src, contains('SymbolDirectory(store: store)'));
+  test('依赖容器：用户数据与目录缓存必须是**两个**文件', () {
+    // R-02 的原始教训是「两个实例各持内存缓存写同一个文件会互相抹 key」。
+    // 当时的修法是「共享同一个实例 + 同一个文件」——副作用是用户数据
+    // （自选）与派生数据（目录缓存）被绑在同一条生命周期上：文件名带
+    // 数据源 id，一旦按文档调换主备，自选静默回到默认列表。
+    //
+    // 现在改为「两个文件」：跨实例互相抹 key 的前提随之消失（不同文件），
+    // 而自选的生命周期不再随数据源变。这条断言守的就是这个分工。
+    final KeyValueStore user = AppDependencies.userStoreFile();
+    final KeyValueStore cache = AppDependencies.sourceCacheFile();
+    expect(
+      identical(user, cache),
+      isFalse,
+      reason: '自选是用户数据、目录是派生缓存，生命周期不同，不能共用一个文件',
+    );
+    expect(
+      identical(user, AppDependencies.userStoreFile()),
+      isTrue,
+      reason: '同一文件名必须命中实例池，否则又回到「两份内存缓存写同一个文件」',
+    );
+  });
+
+  test('依赖容器：订阅仓库带旧文件迁移入口', () {
+    final String src = _read('lib/config/app_dependencies.dart');
+    expect(
+      src,
+      contains('legacyStore: sourceCache'),
+      reason: '升级后必须把旧文件名里的自选搬过来，'
+          '否则「修换源丢自选」这个动作本身又丢一次自选',
+    );
   });
 }

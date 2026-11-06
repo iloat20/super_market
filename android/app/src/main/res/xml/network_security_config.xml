@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  只走 TLS（ROADMAP 2026-11-06 §4.3）。
+
+  这个文件管的是**原生 HTTP 栈**：HttpURLConnection / OkHttp / Cronet / WebView。
+  本 App 的行情请求走 dart:io 的 HttpClient，它自带 BoringSSL 与裸 socket，
+  不经过 Android 的 NetworkSecurityPolicy，所以这里禁明文对行情请求**不生效**。
+  真正对 Dart 侧生效的闸门是 lib/services/rest_client.dart 里的 requireHttps()。
+
+  那为什么还要这个文件：
+  1. 原生侧（现在是 MainActivity 壳，将来可能是 WebView 或走 OkHttp 的插件）
+     由平台的 NetworkSecurityPolicy 执行，这份配置对它们有效；
+  2. targetSdk 28+ 本来就默认禁明文，但那是"平台默认"，不是"仓库里的决定"。
+     写死成文件之后，"谁允许了明文、为什么"在 diff 里看得见。
+
+  没有配置 trust-anchors：不钉系统根证书、也不排除用户证书。行情是公开数据，
+  钉证书只会让证书轮换和抓包调试变成事故，收益不成立。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

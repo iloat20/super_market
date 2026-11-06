@@ -13,10 +13,22 @@ import 'source/polling_sources.dart';
 /// - 首次安装：显示 `AppConfig.stocks`；
 /// - 改过之后：以存档为准，换手机/清数据才回到默认。
 class WatchlistRepository {
-  WatchlistRepository(this._store);
+  WatchlistRepository(this._store, {KeyValueStore? legacyStore})
+    : // 命名参数不能用私有名（`this._legacyStore` 不是合法形参），
+      // 与 local_store / symbol_directory 同款处理
+      // ignore: prefer_initializing_formals
+      _legacyStore = legacyStore;
 
   /// 存档键。带版本号，将来结构变了可以换 key 而不是去猜旧格式。
   static const String storageKey = 'watchlist.v1';
+
+  /// 旧版存档所在的那个 store（文件名带数据源 id）。
+  ///
+  /// 订阅列表是**用户数据**，格式与数据源无关；把它和数据源 id 绑在一起
+  /// 意味着「按文档调换主备两行」＝静默回到默认列表（见 local_store 的
+  /// `fileName` 注释）。现在用户数据写到与源无关的文件，这里只负责
+  /// 一次性把旧文件读出来搬过去。
+  final KeyValueStore? _legacyStore;
 
   /// 全部轮询内核都覆盖的市场并集。
   ///
@@ -41,6 +53,17 @@ class WatchlistRepository {
           return parsed;
         }
       }
+      // 新文件里没有（全新安装 / 首次升级到「用户数据与源解耦」这一版）：
+      // 去旧文件名里找一次，找到就搬过来。不搬的话，用户在升级后会看到
+      // 自选凭空回到默认列表——修「换源丢自选」的动作本身又丢一次自选。
+      final String? legacy = await _readLegacyRaw();
+      if (legacy != null) {
+        final List<StockConfig> parsed = decode(legacy);
+        if (parsed.isNotEmpty) {
+          await _adoptLegacy(legacy);
+          return parsed;
+        }
+      }
     } on Object catch (e) {
       // 读盘失败（权限/磁盘/平台通道异常）不该让首页起不来：
       // 退回默认三只，用户下一次修改会重新写盘。
@@ -49,12 +72,43 @@ class WatchlistRepository {
     return AppConfig.stocks;
   }
 
-  Future<void> save(List<StockConfig> stocks) async {
+  Future<String?> _readLegacyRaw() async {
+    final KeyValueStore? legacy = _legacyStore;
+    if (legacy == null) {
+      return null;
+    }
+    try {
+      return await legacy.read(storageKey);
+    } on Object catch (e) {
+      AppLog.w('旧订阅存档读取失败（忽略）: $e');
+      return null;
+    }
+  }
+
+  Future<void> _adoptLegacy(String raw) async {
+    try {
+      await _store.write(storageKey, raw);
+      AppLog.i('订阅存档已迁移到与数据源无关的文件');
+    } on Object catch (e) {
+      // 迁移失败不影响本次使用：数据还在旧文件里，下次启动会再试一次
+      AppLog.w('订阅存档迁移失败（本次仍用旧数据）: $e');
+    }
+  }
+
+  /// 存盘；返回**是否真的写成功**。
+  ///
+  /// 原来返回 void 并在这里吞掉异常，调用方（页面）`await` 之后即当已提交，
+  /// 于是「磁盘满 / 目录不可写」这种失败对用户完全不可见，直到重启才发现
+  /// 自选回退。返回值把「写成功」这件事变成一个有类型的答案。
+  Future<bool> save(List<StockConfig> stocks) async {
     try {
       await _save(stocks);
+      return true;
     } on Object catch (e) {
-      // 存盘失败只影响「下次启动还原」，不该打断当前这次改动
+      // 存盘失败只影响「下次启动还原」，不打断当前这次改动；
+      // 但**必须把失败告诉调用方**，由它决定怎么提示用户。
       AppLog.e('订阅存档写入失败: $e');
+      return false;
     }
   }
 
@@ -176,6 +230,12 @@ class WatchlistRepository {
   /// —— 猜一个 `BJ` 上去只会换来一句看不懂的服务端错误。
   /// 字母代码（美股）同样返回 null：交易所**无法**从代码推断（同一串字母
   /// 可能在 NASDAQ 也可能在 NYSE），美股只能走搜索添加。
+  ///
+  /// 2 开头（深市 B 股 200xxx）与 9 开头（沪市 B 股 900xxx、北交所 920xxx）
+  /// 一律返回 null：这些号段两个轮询源要么根本不供、要么供的是**外币计价**
+  /// 的另一类标的，放进来就是一张永远 `--` 的卡（或一只被当成 A 股显示的
+  /// B 股）。搜索侧早就把这两段挡掉了（见 `eastmoney_suggest._isAShareCode`），
+  /// 手输兜底必须与它同口径——否则「搜不到」和「能手输」自相矛盾。
   static String? regionForCode(String code) {
     if (_usCodePattern.hasMatch(code)) {
       return null;
@@ -189,13 +249,15 @@ class WatchlistRepository {
     switch (code[0]) {
       case '0':
       case '1':
-      case '2':
       case '3':
         return 'SZ';
       case '5':
       case '6':
-      case '9':
         return 'SH';
+      case '2':
+      case '9':
+        // 深 B（200xxx）/ 沪 B（900xxx）/ 北交所（920xxx）：不支持
+        return null;
       default:
         return null;
     }

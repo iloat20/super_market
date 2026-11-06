@@ -7,10 +7,18 @@ plugins {
 }
 
 android {
-    // `supermarket.app`：两段都是合法的 Java 标识符（`super` 不行——它是保留字，
-    // 见 defaultConfig 里的注释）。namespace 决定 R 类与 `MainActivity` 的包，
-    // 所以 `MainActivity.kt` 在 `kotlin/supermarket/app/`、包声明同为 `supermarket.app`。
-    namespace = "supermarket.app"
+    // `app.supermarket`：两段都是合法 Java 标识符，包名落在最后一段上。
+    //
+    // 为什么不是单段 `supermarket`（2026-11-06 试过）：AGP 在清单合并阶段直接拒
+    // ——"Package name 'supermarket' should contain at least one '.' character"。
+    // applicationId 至少两段是 aapt 的硬校验，没有开关可关。
+    //
+    // 为什么不是 `super.market`：`super` 是 Java 关键字，namespace 必须是合法
+    // Java 包名，AGP 同样会拒。
+    //
+    // namespace 决定 R 类与 `MainActivity` 的包，所以 `MainActivity.kt` 在
+    // `kotlin/app/supermarket/`、包声明同为 `app.supermarket`。
+    namespace = "app.supermarket"
     // 显式钉 37（Android 17），不再跟 `flutter.compileSdkVersion`：
     // Flutter 3.47.9 的默认值仍是 36，跟着它走就永远差一代；而将来 Flutter
     // 提默认值的时候，也应该是我们自己决定要不要跟，不是被静默拽走。
@@ -27,19 +35,15 @@ android {
     }
 
     defaultConfig {
-        // 2026-11-05：从 Flutter 模板的 `com.example.super_market` 一路改成
-        // `supermarket.app`，**applicationId 与 namespace 现在一致**。
+        // 三代包名：`com.example.super_market` → `supermarket.app` → **`app.supermarket`**
+        // （2026-11-06）。`applicationId` 与 `namespace` 始终一致。
         //
-        // 为什么不是 `super.market`（第一版选的名字）：`super` 是 Java 关键字，
-        // namespace 必须是合法 Java 包名，AGP 会直接拒绝
-        // （`Namespace 'super.market' is not a valid Java package name as 'super'
-        // is a Java keyword.`）。applicationId 不受这条限制，但两边对不上就得
-        // 永远解释一遍——所以最后换成两段都合法的 `supermarket.app`。
-        //
-        // 代价（已确认接受）：每换一次 applicationId = 换一次应用身份，
-        // 旧包只能卸载重装；`getApplicationSupportDirectory()` 在旧包目录下、
-        // 跨 UID 读不到，旧自选与目录缓存无法迁移，重装后回到默认列表。
-        applicationId = "supermarket.app"
+        // ⚠️ 每换一次 applicationId = 换一次应用身份：旧包只能卸载重装，
+        // `getApplicationSupportDirectory()` 在旧包目录下、跨 UID 读不到，
+        // 旧自选无法迁移。
+        // 本次的应对：把改名前设备上的 6 只自选写进 `AppConfig.stocks` 默认值，
+        // 新包首启看到的是同一份列表（见 lib/config/app_config.dart 的注释）。
+        applicationId = "app.supermarket"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
