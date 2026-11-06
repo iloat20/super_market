@@ -159,3 +159,54 @@ Flutter/Dart 层无法消除；占空比 1.25% 无感知、无害 → **推荐�
 
 次要发现：实验④ 0 样本假阳性一次——焦点被系统铃声选择器压住（用户在用
 手机），App 实际在后台；采集前应先确认 `mCurrentFocus` 是本应用。
+
+## 八、跟随 Impeller 上游（2026-11-06 调研）
+
+> 第七节备选路径③的落地：被动跟随引擎改进，本节把它变成可执行机制。
+
+### 引擎现状事实（2026-11-06 核对，Flutter 3.47.9 / stable）
+
+1. **帧内共享已存在**：`dart:ui` 的 `SceneBuilder.pushBackdropFilter` 支持
+   `backdropId`——同帧内相同 id 的 backdrop filter 共享缓存的 backdrop 状态
+   （官方文档："dramatically improving performance for applications with
+   multiple backdrop filters"）。`GlassBackdropGroup` 的 `BackdropKey` 就是
+   这套机制的封装——实验③证实它已省 ~35%；
+2. **跨帧缓存不存在**：静置帧复用上一帧 blur 结果的机制，引擎没有实现，
+   也没有明确的 roadmap 项。相关上游动态：
+   - flutter/flutter#190613（2026-08，open）：Impeller `RenderTargetCache` 的
+     `keep_alive_frame_count`（blur 场景渲染目标缓存）讨论——引擎团队倾向
+     **内部优化**而非暴露配置，持续关注 blur 场景；
+   - flutter/flutter#131568（P2, team-engine）：连续 backdrop filter 层的
+     性能优化；
+   - 历史已落地：PR #47808（移除错误的 read-from-resolve，多 blur 场景
+     提升 20%~70%）、PR #47397（stencil 缓冲优化，Vulkan 下 55ms→16ms）；
+3. 判定：**跟随是正确姿势**——上游有持续优化意愿与基建（backdropId 缓存
+   基建已在），跨帧 blur 缓存是合理的下一步，但无法预估时间，不需要等。
+
+### 验证机制（升级 Flutter 时执行，与 dep-liquid-glass.md SOP 联动）
+
+每次升级 Flutter（跨小版本即可采）：
+
+```bash
+# 手机连 adb，App 前台打开，收盘时段或任意空闲场景
+ADB=/c/Android/sdk/platform-tools/adb.exe
+"$ADB" shell am force-stop supermarket.app
+"$ADB" shell am start -n supermarket.app/.MainActivity
+sleep 8 && "$ADB" logcat -c && sleep 92
+"$ADB" logcat -d -s flutter | grep "\[perf\]"   # 需要带 --dart-define=PERF_LOG=true 的包
+```
+
+- 基线：静置 raster p50 ≈ **12.5ms**（2026-11-05/06，Flutter 3.47.9）；
+- **信号**：raster p50 显著下降（<5ms 量级）= 引擎的 backdrop 跨帧缓存 /
+  partial repaint 兼容落地了——静置 GPU 脉冲消失，LTPO 可降频；
+- 若落地：更新本节基线数字与日期，并复核滚动/盘中口径（预期只影响静置
+  与盘中帧，滚动帧 raster 应不变）。
+
+### 盯什么
+
+| 信号 | 渠道 |
+| --- | --- |
+| Flutter release notes 的 Impeller / blur / backdrop 关键字 | 每次升级时（走 dep-liquid-glass.md SOP） |
+| flutter/flutter#190613（RenderTargetCache / keep_alive_frame_count） | 关闭/发布 note 时 |
+| flutter/flutter#131568（contiguous backdrop filter 优化） | 关闭/发布 note 时 |
+| liquid_glass_widgets 上游若改用新的引擎 backdrop API | 包升级时（dep-liquid-glass.md SOP） |

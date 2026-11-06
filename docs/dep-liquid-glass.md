@@ -54,6 +54,11 @@
 **回滚**：`git revert` 该次 commit 即可（pubspec.yaml / pubspec.lock / 常量 /
 履历同 commit 进出）。
 
+> **升级 Flutter 引擎时同样要跑这一套**，外加静置探针采样（docs/
+> PERF-BASELINE-2026-11-05.md 第八节）：引擎的 Impeller 对 backdrop filter
+> 的缓存/部分重绘机制在持续演进，静置 raster p50 基线 12.5ms 显著下降
+> （<5ms）即引擎改进落地——玻璃光学与性能数字都算升级的验收项。
+
 ## 五、锁定决策
 
 | 选项 | 结论 |
