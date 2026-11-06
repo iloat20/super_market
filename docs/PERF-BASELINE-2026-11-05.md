@@ -106,6 +106,12 @@ DART=/c/Users/Administrator/Downloads/flutter/bin/dart
    只看 dart-define，与历史 release 数字同口径；
 5. `adb install` 的输出不要 `tail -1` 吞——失败（stat 失败/签名冲突）会被
    静默，后续所有数字测的是旧包。
+6. **采前必查设备内存压力**（2026-11-06 新增）：该机常态 `Mem 11.0G/11.3G used`、
+   `swap 6.9G`、`erm_reclaimd` 20–30% CPU。此时单轮 `am start -W` 是随机数
+   （实测同款构建可差 3 倍：345ms vs 1060ms）。协议：`adb shell top -n 1 -b -m 6 -s 9`
+   看到 `erm_reclaimd` / `system_server` 高占用就换时段，或改用「同源 A/B + 交叉轮测」。
+7. 冷启动**不要跟历史绝对值比**，只比同时段 A/B——403ms（11-05 收盘）与 345ms
+   （11-06 盘中）同为 stored 构建，差异纯属设备状态。
 
 ## 七、功耗复核与归因实验（2026-11-06 上午，真机 A/B）
 

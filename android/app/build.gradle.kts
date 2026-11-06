@@ -121,6 +121,14 @@ android {
     // 将来若别的插件又带进来其它 ABI 的 .so，`tool/verify_apk.py` 会当场报出来。
     packaging {
         jniLibs {
+            // 2026-11-06：把 .so 从 stored 改成 DEFLATE 存储（等价于 Manifest 的
+            // extractNativeLibs=true）。AGP 8+ 默认**不压缩**原生库（安装后直接
+            // mmap APK 里的页），于是三个 .so 白占 15.59MB 中本该省下的 8.7MB。
+            // 自用 sideload 场景下「发出去的文件小一半」比「装后省 7MB」值钱：
+            //   - 传输体积 16.59MB → 约 7.8MB（deflate-9 实测三 .so 6.86MB）
+            //   - 代价：安装时解压一次，装后占用 +约 7MB；冷启动需复测（基线 403ms，
+            //     门槛 450ms，超了就删掉这一行回滚）
+            useLegacyPackaging = true
             excludes += setOf(
                 "lib/armeabi-v7a/libdartjni.so",
                 "lib/x86_64/libdartjni.so",
