@@ -106,3 +106,50 @@ DART=/c/Users/Administrator/Downloads/flutter/bin/dart
    只看 dart-define，与历史 release 数字同口径；
 5. `adb install` 的输出不要 `tail -1` 吞——失败（stat 失败/签名冲突）会被
    静默，后续所有数字测的是旧包。
+
+## 七、功耗复核与归因实验（2026-11-06 上午，真机 A/B）
+
+> 针对「空闲帧玻璃模糊缓存 / 图层隔离复核」的优化方向。先复核、后归因、
+> 再决策——结论：**无需优化，现状无害**。以下全部为 release+PERF_LOG
+> 静置窗口实测（临时改动逐个 revert，未进产品）。
+
+### 复核结论（先于实验成立）
+
+1. **无隐藏高频帧源**：静置唯一活跃帧源是秒表 1Hz（40 帧/39s 数据互证）；
+   角标 30s、FreshnessTicker 单次、太极 tick 驱动收盘静止、快照被
+   `shouldApplyQuote` 拦——清单逐项核对无遗漏；
+2. **图层隔离无缺失**：Aurora / HeaderFade / 页头 / 卡片内容层各有
+   RepaintBoundary，玻璃与内容分层有 paint_isolation_test 守着；
+3. **GPU 占空比 ≈ 1.25%**（12.5ms / 1000ms × 1Hz）——PERF-AUDIT P1-5
+   担心的「空闲功耗」在当前 tick 驱动架构下**实际不存在**。
+
+### 归因实验（每项只改一个变量）
+
+| 实验 | 改动 | 静置 raster p50 | 结论 |
+|---|---|---|---|
+| 现状 | — | 12.3–12.5 @120Hz / 12.1–12.4 @90Hz | 基线；**成本与面板档位无关**（纯 blur 工作量） |
+| ② | `quality: standard` | 12.0–12.1 @90Hz | 成本**不在** premium 着色器——在 `BackdropFilter` 的模糊本身（standard 同样走 blur） |
+| ③ | 去掉 `GlassBackdropGroup` | **18.6–19.3** @120Hz | **组省 ~35%**（6 面玻璃共享一次 backdrop 读 + blur 只跑一次）——组必须保留 |
+| ④ | 列表层外包 RepaintBoundary | 12.1–12.4 @90Hz | **无效**——存在 `BackdropFilterLayer` 时 Impeller 放弃 partial repaint，全帧重绘 |
+
+包源码佐证（liquid_glass_widgets-1.16.1，`glass_backdrop_group_boundary.dart`）：
+共享 backdrop 读是 **per frame** 语义（"Impeller copies a shared backdrop once
+per frame"）——**无跨帧缓存**，且 `opensRenderPassBelow` 把 `RenderBackdropFilter`
+列为强制独立 render pass 的节点。
+
+### 最终判定
+
+静置/盘中每秒一帧的 ~12ms 是**引擎级机制**（BackdropFilter → 全帧重绘），
+Flutter/Dart 层无法消除；占空比 1.25% 无感知、无害 → **推荐：接受现状，
+不做改动**（本次未改任何产品代码）。
+
+若未来仍要压（均需先拍板，无一零成本）：
+
+| 路径 | 代价 |
+| --- | --- |
+| 秒表 1s → 1min 跳 | 产品决策（秒表是既定特性），空闲帧 1Hz→1/60Hz |
+| 玻璃改静态缓存模糊（ImageFiltered 用缓存的 ui.Image） | 滚动时背景实时折射消失——重大视觉决策 |
+| 跟随 Impeller 上游的 backdrop filter 缓存改进 | 被动，升级时按 dep-liquid-glass 台账 SOP 验证 |
+
+次要发现：实验④ 0 样本假阳性一次——焦点被系统铃声选择器压住（用户在用
+手机），App 实际在后台；采集前应先确认 `mCurrentFocus` 是本应用。
