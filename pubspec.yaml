@@ -22,6 +22,11 @@ dependencies:
   # 显式写出来是为了满足 depend_on_referenced_packages：直接 import 就必须直接依赖。
   jni: ^1.1.2
   jni_flutter: ^1.0.4+1
+  # Material 设计系统。Flutter 3.47 起从 SDK 拆成独立包（周更），全库 import 走
+  # `package:material_ui/material_ui.dart`；旧的 `package:flutter/material.dart`
+  # 仍能编译但已冻结、计划弃用，别再引入（有测试守着：design_library_boundary_test）。
+  # 它的硬依赖会带进 cupertino_ui / flutter_localizations / intl，见 README 二·四十三。
+  material_ui: ^1.10.0
 
 dev_dependencies:
   flutter_test:

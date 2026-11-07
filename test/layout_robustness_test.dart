@@ -1,11 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/pages/quote_list_page.dart';
-import 'fake_feed.dart';
 import 'package:super_market/widgets/quote_tile.dart';
+import 'fake_feed.dart';
 
 /// 布局健壮性：窄屏 + 系统大字体。
 ///

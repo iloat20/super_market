@@ -10,25 +10,16 @@
 library;
 
 /// 一根 K 线。
-class Kline {
-  const Kline({
-    required this.time,
-    required this.open,
-    required this.high,
-    required this.low,
-    required this.close,
-    required this.volume,
-  });
-
-  final DateTime time;
-  final double open;
-  final double high;
-  final double low;
-  final double close;
+class const Kline({
+  required final DateTime time,
+  required final double open,
+  required final double high,
+  required final double low,
+  required final double close,
 
   /// 该周期内的成交量，单位**股**
-  final double volume;
-
+  required final double volume,
+}) {
   /// 能不能画。
   ///
   /// 停牌、退市、接口返回占位 0 都会让价格变成 0，直接画会得到一根
@@ -50,31 +41,24 @@ class Kline {
 }
 
 /// 分时图上的一个点（1 分钟粒度）。
-class IntradayPoint {
-  const IntradayPoint({
-    required this.time,
-    required this.price,
-    required this.avgPrice,
-    required this.volume,
-  });
-
-  final DateTime time;
+class const IntradayPoint({
+  required final DateTime time,
 
   /// 该分钟的收盘价（分时图的"当前价"）
-  final double price;
+  required final double price,
 
   /// 当日累计均价（成交额 ÷ 成交量），分时图的黄线。
   ///
   /// 0 表示这个源没给累计成交额，UI 就不画均价线——**不要**用 0 去画，
   /// 那会把黄线拉到横轴底部。
-  final double avgPrice;
+  required final double avgPrice,
 
   /// **该分钟增量**成交量，单位股。不是当日累计。
   ///
   /// 两个源给的都是累计值，差分在解析层做完，UI 拿到的永远是增量；
   /// 否则量柱会画成一条从左到右单调升高的斜线。
-  final double volume;
-
+  required final double volume,
+}) {
   bool get isValid => price > 0;
 
   @override
@@ -88,20 +72,17 @@ class IntradayPoint {
 ///
 /// 为什么不直接返回 `List`：空列表有两种含义——「今天还没开盘，没有数据」和
 /// 「两个源都请求失败了」。UI 对这两种的文案完全不同，所以错误要带出来。
-class KlineResult<T> {
-  const KlineResult({required this.items, required this.sourceId, this.error});
-
-  const KlineResult.failed(String this.error)
-    : items = const <Never>[],
-      sourceId = '';
-
-  final List<T> items;
+class const KlineResult<T>({
+  required final List<T> items,
 
   /// 实际出数据的源（`sina` / `tencent`），全失败时为空串
-  final String sourceId;
+  required final String sourceId,
 
   /// 全部源都失败时的原因；拿到数据时为 null
-  final String? error;
+  final String? error,
+}) {
+  const KlineResult.failed(String error)
+    : this(items: const <Never>[], sourceId: '', error: error);
 
   bool get isEmpty => items.isEmpty;
 

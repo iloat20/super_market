@@ -1,11 +1,12 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'config/app_dependencies.dart';
 import 'config/app_theme.dart';
 import 'pages/quote_list_page.dart';
 import 'services/quote_feeds.dart';
+import 'utils/adpf.dart';
 import 'utils/app_log.dart';
 import 'utils/error_hooks.dart';
 import 'utils/exit_diagnostics.dart';
@@ -49,6 +50,10 @@ Future<void> main() async {
 
   // 帧耗时探针：只在 --dart-define=PERF_LOG=true 的构建里注册
   installFrameProbe();
+
+  // ADPF：把每帧真实耗时回报给 Android，让调频对齐帧截止时间。
+  // 引擎侧还没接（README 二·四十六），这里应用层自己做；不支持就静默降级。
+  installAdpf();
 
   // 退出归因：首帧之后读一次「上次进程怎么死的」（Android 17 的
   // MemoryLimiter 只会留一条 ApplicationExitInfo，不产生崩溃堆栈）。

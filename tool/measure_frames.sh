@@ -28,7 +28,7 @@ cd "$(dirname "$0")/.."
 
 ADB="${ADB:-adb}"
 DART="${DART:-dart}"
-PKG=app.supermarket
+PKG=app.supermarket   # 同时是原生 logcat tag（Kotlin LogTag.kt）；改包名时两处一起改
 BUILD="${BUILD:-profile}"
 APK="build/app/outputs/flutter-apk/app-${BUILD}.apk"
 
@@ -70,7 +70,7 @@ echo "==> 冷启动"
 sleep 6
 
 echo "==> 刷新率（原生侧）"
-"$ADB" logcat -d -s super_market | grep "refresh:" | tail -5
+"$ADB" logcat -d -s "$PKG" | grep "refresh:" | tail -5
 
 echo
 echo "==> 连滑 5 次，采集帧耗时"
@@ -86,7 +86,7 @@ echo "样本行数：$(wc -l < "$PERF_LOG" | tr -d ' ')"
 
 echo
 echo "==> 滑动期间的帧率投票"
-"$ADB" logcat -d -s super_market | grep "refresh: 投票" | tail -8
+"$ADB" logcat -d -s "$PKG" | grep "refresh: 投票" | tail -8
 
 echo
 echo "==> 当前 display mode"

@@ -1,12 +1,12 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/pages/quote_list_page.dart';
-import 'fake_feed.dart';
 import 'package:super_market/widgets/market_session_badge.dart';
 import 'package:super_market/widgets/quote_detail_sheet.dart';
 import 'package:super_market/widgets/quote_tile.dart';
+import 'fake_feed.dart';
 
 void main() {
   testWidgets('单只 notifier 变化只影响自己那一行', (WidgetTester tester) async {

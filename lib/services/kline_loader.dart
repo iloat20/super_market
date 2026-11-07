@@ -14,6 +14,8 @@ import 'source/kline_sources.dart';
 /// 2. **缓存**。详情页在「分时 / 日 K」之间来回切是高频操作，每次都打一次
 ///    外网既慢又没必要——30 秒内的同一请求直接复用。
 /// 3. **失败不抛**。走势图是装饰性数据，拉不到就少一块，绝不能让详情页崩。
+/// 4. **增量刷新**（见 [_tryDelta]）。日线 TTL 过期后若同源缓存还在，
+///    只拉最新 2 根、用锚点证明连续性再本地拼接，而不是重传 80 根。
 class KlineLoader {
   KlineLoader({
     List<KlineSource>? chain,
@@ -37,6 +39,10 @@ class KlineLoader {
   /// 游标/时间窗。所以翻页的实现就是**把 N 加大重新拉一次**——这也意味着
   /// 第二页会把第一页的数据再传一遍（80→160 多传 80 根，约 10KB），
   /// 换源也不用改协议。
+  ///
+  /// 三种出口，按优先级：命中未过期缓存（0 请求）→ 过期但可增量（2 根）
+  /// → 全量主备（N 根）。UI 完全不用知道走了哪一条，`_retry()` 的
+  /// [clear] 会把缓存清空，保证手动重试仍是实打实的全量重拉。
   Future<KlineResult<Kline>> loadDaily(StockConfig stock, {int? count}) async {
     // 夹在合法区间而不是信任调用方：`datalen` 是直接拼进 URL 的，
     // 一个 0 或负数会让服务端返回空、却表现为「这只股票没有走势数据」。
@@ -44,8 +50,24 @@ class KlineLoader {
       1,
       KlineSource.maxDailyCount,
     );
-    return _load<Kline>(
-      '<${stock.key}|daily|$n>',
+    final String key = '<${stock.key}|daily|$n>';
+    final KlineResult<Kline>? hit = _freshHit<Kline>(key);
+    if (hit != null) {
+      return hit;
+    }
+
+    // 过期的条目**不删**：它正是增量拼接的基线。拿不到可用增量时，
+    // 下面的全量主备会照常覆盖它，行为与改造前一致。
+    final _Entry<Object>? stale = _cache[key];
+    if (stale != null && n >= _deltaProbeCount) {
+      final KlineResult<Kline>? delta = await _tryDelta(stock, n, key, stale);
+      if (delta != null) {
+        return delta;
+      }
+    }
+
+    return await _load<Kline>(
+      key,
       (KlineSource s) => s.dailyUri(stock, n),
       (KlineSource s, List<int> bytes) => s.parseDaily(bytes, stock),
       (Kline k) => k.time,
@@ -85,6 +107,19 @@ class KlineLoader {
     }
   }
 
+  /// 取未过期的缓存并续命。抽出来是因为 [loadDaily] 要先于增量判断查一次，
+  /// [_load] 在全量回退时还得再查一次（两处必须是同一个判据）。
+  KlineResult<T>? _freshHit<T>(String key) {
+    final _Entry<Object>? hit = _cache[key];
+    if (hit == null || hit.isExpired(_now())) {
+      return null;
+    }
+    // 命中也要"续命"，否则淘汰策略退化成 FIFO：一个刚看过的股票
+    // 会因为它是"最早插入的"而被踢出去
+    _remember(key, hit);
+    return KlineResult<T>(items: hit.items.cast<T>(), sourceId: hit.sourceId);
+  }
+
   Future<KlineResult<T>> _load<T>(
     String key,
     Uri Function(KlineSource source) uriOf,
@@ -92,12 +127,9 @@ class KlineLoader {
     DateTime Function(T item) timeOf, {
     bool Function(KlineSource source) supports = _always,
   }) async {
-    final _Entry<Object>? hit = _cache[key];
-    if (hit != null && !hit.isExpired(_now())) {
-      // 命中也要"续命"，否则淘汰策略退化成 FIFO：一个刚看过的股票
-      // 会因为它是"最早插入的"而被踢出去
-      _remember(key, hit);
-      return KlineResult<T>(items: hit.items.cast<T>(), sourceId: hit.sourceId);
+    final KlineResult<T>? hit = _freshHit<T>(key);
+    if (hit != null) {
+      return hit;
     }
 
     // 主备：按顺序试，第一个**解析出数据**的胜出。
@@ -148,6 +180,126 @@ class KlineLoader {
     }
     return KlineResult<T>.failed(lastError ?? '没有可用的走势数据源');
   }
+
+  /// 增量探测取几根：**2**。
+  ///
+  /// 不是需求里写的 1 根，因为 1 根**证明不了连续性**：App 后台几天、
+  /// 长假或停牌后，缓存末根是 D-5、服务端末根是 D，只拉 1 根就会把
+  /// 「D-5 后面紧跟 D」当成正常序列 append 上去 —— 中间少 4 根，
+  /// 图上不报错，但 MA 全算错。除权除息时腾讯 qfq 会把**全部历史价**
+  /// 重算一遍，1 根同样发现不了。
+  ///
+  /// 改成拉 2 根：第 1 根当锚点，必须与缓存里的某根**逐字段相同**；
+  /// 第 2 根才是要拼的最新一根。锚点对不上就回退全量，宁可多花一次
+  /// 请求也不能画错。`tool/probe_kline_delta.py` 实测多加这一根只多
+  /// 242 B（新浪）/ 71 B（腾讯），相对 80 根仍省 97.3% / 75.3%。
+  static const int _deltaProbeCount = 2;
+
+  /// 用过期缓存做增量刷新；任何可疑情况返回 null，由调用方回退全量主备。
+  ///
+  /// 三条硬约束（对应 `kline_incremental_test.dart` 的守门用例）：
+  ///
+  /// 1. **同源**。缓存是新浪给的就只问新浪。新浪日线不含当日、腾讯含当日
+  ///    且实时更新；新浪不复权、腾讯 `qfq` 前复权。跨源拼接会把两种价格
+  ///    基准混进一条序列，且完全不报错。
+  /// 2. **锚点校验**。新响应的前一根必须与缓存末根（多了一个交易日）或
+  ///    倒数第二根（最后一根被刷新）逐字段相同。字段里含价格与成交量，
+  ///    所以缺口、复权重算、源格式变化都会在这里被挡下。
+  /// 3. **失败即全量**。增量请求失败、根数不对、解析为空、抛 Error，一律
+  ///    返回 null。走势是装饰性数据，绝不能因为一次小优化把图搞坏。
+  Future<KlineResult<Kline>?> _tryDelta(
+    StockConfig stock,
+    int count,
+    String key,
+    _Entry<Object> stale,
+  ) async {
+    final List<Kline> cached = stale.items.cast<Kline>().toList();
+    // 少于两根就没有锚点可比（也覆盖 count=1 的调用）。
+    if (cached.length < _deltaProbeCount) {
+      return null;
+    }
+
+    KlineSource? source;
+    for (final KlineSource s in _chain) {
+      if (s.id == stale.sourceId && s.supports(stock)) {
+        source = s;
+        break;
+      }
+    }
+    if (source == null) {
+      return null; // 出数据的源已不在链里 / 不支持该市场 → 交给全量主备
+    }
+
+    try {
+      final HttpRawResponse res = await _httpGet(
+        source.dailyUri(stock, _deltaProbeCount),
+        source.headers,
+      );
+      if (!res.isOk) {
+        AppLog.w('走势 $key：增量 ${source.id} ${res.failureLabel}，回退全量');
+        return null;
+      }
+      final List<Kline> probe =
+          source.parseDaily(res.body, stock)
+            ..sort((Kline a, Kline b) => a.time.compareTo(b.time));
+      if (probe.length != _deltaProbeCount) {
+        AppLog.w('走势 $key：增量 ${source.id} 返回 ${probe.length} 根，回退全量');
+        return null;
+      }
+
+      final Kline anchor = probe.first;
+      final Kline latest = probe.last;
+      if (!anchor.isValid || !latest.isValid || !latest.time.isAfter(anchor.time)) {
+        return null;
+      }
+
+      final Kline last = cached.last;
+      final Kline beforeLast = cached[cached.length - 2];
+      List<Kline> merged;
+      if (_sameBar(anchor, last)) {
+        // 恰好多了一个交易日 → 追加最新一根
+        merged = <Kline>[...cached, latest];
+      } else if (_sameBar(anchor, beforeLast) &&
+          _sameDay(latest.time, last.time)) {
+        // 没有新交易日，只是最后一根被刷新（腾讯当日实时 bar）→ 覆盖
+        merged = <Kline>[...cached.sublist(0, cached.length - 1), latest];
+      } else {
+        AppLog.w('走势 $key：增量锚点对不上（缺口或复权重算），回退全量');
+        return null;
+      }
+
+      // 窗口宽度由 count 决定：追加后超出的最旧一根要挤掉，否则序列会越拼越长。
+      if (merged.length > count) {
+        merged = merged.sublist(merged.length - count);
+      }
+      _remember(
+        key,
+        _Entry<Object>(
+          items: merged.cast<Object>(),
+          sourceId: source.id,
+          expiresAt: _now().add(AppConfig.klineCacheTtl),
+        ),
+      );
+      return KlineResult<Kline>(items: merged, sourceId: source.id);
+    } on Object catch (e) {
+      // 与 _load 同一条 R-02 纪律：Error 也要拦，增量失败只能是「回退」。
+      AppLog.w('走势 $key：增量 ${source.id} 请求异常（$e），回退全量');
+      return null;
+    }
+  }
+
+  /// 逐字段相同，而不只是同一天：价格/成交量的变化正是「复权重算」的信号。
+  static bool _sameBar(Kline a, Kline b) =>
+      a.time == b.time &&
+      a.open == b.open &&
+      a.high == b.high &&
+      a.low == b.low &&
+      a.close == b.close &&
+      a.volume == b.volume;
+
+  /// 日线的 DateTime 通常是当天 0 点，但不假设源一定不带时分秒。
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
 class _Entry<T> {

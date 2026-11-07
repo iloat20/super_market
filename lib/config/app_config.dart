@@ -194,4 +194,17 @@ abstract final class AppConfig {
   /// 再长就出现「图上最后一根和头部价格差得远」的观感问题——虽然我们
   /// 会用实时报价补最后一根，但补的是**价格**，补不了成交量的缺。
   static const Duration klineCacheTtl = Duration(seconds: 30);
+
+  // ============ 性能（Android 专属）============
+
+  /// 是否向 Android 的 ADPF（动态性能框架）回报每帧真实工作量。
+  ///
+  /// 引擎侧还没接（见 README 二·四十五 / 二·四十六），这里是应用层自己做：
+  /// Dart 拿 `FrameTiming` 的 build + raster 耗时，攒批发给 Kotlin，由
+  /// `PerformanceHintManager` 建会话。系统据此把 CPU 频率爬升对齐到帧截止时间。
+  ///
+  /// **留给开关的理由**：这条链路依赖「按线程名扫到 `1.ui` / `1.raster`」，
+  /// 属于引擎实现细节；某些 ROM 上扫不到就会静默跳过。真遇到异常耗电或
+  /// 反效果，改这一行就能关掉，不用动代码。
+  static const bool enableAdpf = true;
 }

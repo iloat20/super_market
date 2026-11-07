@@ -38,6 +38,13 @@ const String _sinaIntraday = '''
  {"day":"2026-11-03 09:30:00","open":"1450.000","high":"1450.000","low":"1450.000","close":"1450.000","volume":"165000","amount":"239250000.00"},
  {"day":"2026-11-03 09:31:00","open":"1450.000","high":"1451.000","low":"1436.000","close":"1436.000","volume":"162000","amount":"233109222.29"}]}}''';
 
+/// 与 [_sinaDaily] 的倒数两根**逐字段相同**：增量探测里「没有新交易日，
+/// 只是最后一根被刷新」的情形。字段不一致就会被锚点校验判为复权重算。
+const String _sinaDailyLast2 = '''
+{"result":{"status":{"code":0},"data":[
+ {"day":"2026-11-02","open":"1410.000","high":"1447.000","low":"1395.020","close":"1439.100","volume":"8269122","ma_price5":1374.36,"ma_volume5":5261698},
+ {"day":"2026-10-30","open":"1363.000","high":"1393.370","low":"1352.980","close":"1392.050","volume":"5992729","ma_price5":1356.536,"ma_volume5":4439857}]}}''';
+
 /// 腾讯日线：数组顺序是 [日期, 开, 收, 高, 低, 量(手)]
 /// 最后一根是**当日**（11-03），新浪那边是没有的
 const String _tencentDaily = '''
@@ -260,13 +267,34 @@ void main() {
       expect(calls['quotes.sina.cn'], 1);
     });
 
-    test('缓存过期后重新请求', () async {
+    test('缓存过期后重新请求，但只补 2 根而不是重传 80 根', () async {
       DateTime now = DateTime(2026, 11, 3, 10, 0);
-      final KlineLoader loader = loaderWith(KlineSources2.both, now: () => now);
+      final List<int> asked = <int>[];
+      final KlineLoader loader = KlineLoader(
+        chain: KlineSources2.both,
+        now: () => now,
+        httpGet: (Uri uri, Map<String, String> headers) async {
+          final bool isSina = uri.host == 'quotes.sina.cn';
+          final int n = isSina
+              ? int.parse(uri.queryParameters['datalen']!)
+              : int.parse(uri.queryParameters['param']!.split(',')[4]);
+          asked.add(n);
+          calls[uri.host] = (calls[uri.host] ?? 0) + 1;
+          return HttpRawResponse(
+            statusCode: 200,
+            body: _b(isSina ? (n == 2 ? _sinaDailyLast2 : _sinaDaily) : _tencentDaily),
+          );
+        },
+      );
       await loader.loadDaily(kMaotai);
       now = now.add(AppConfig.klineCacheTtl + const Duration(seconds: 1));
-      await loader.loadDaily(kMaotai);
+      final r = await loader.loadDaily(kMaotai);
+      // 假源必须按真网行为回 2 根：若它忽略 datalen 一直回 3 根，
+      // 锚点校验会判失败并回退全量，这里就变成 [80,2,80] 了。
+      expect(asked, <int>[80, 2]);
       expect(calls['quotes.sina.cn'], 2);
+      expect(r.items.length, 3, reason: '同日刷新是覆盖，不该多长一根');
+      expect(r.sourceId, 'sina');
     });
 
     test('分时与日线是两个缓存键，互不影响', () async {

@@ -1,16 +1,16 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/pages/quote_list_page.dart';
+import 'package:super_market/services/local_store.dart';
 import 'package:super_market/services/polling_quote_feed.dart';
 import 'package:super_market/services/quote_feed.dart';
-import 'package:super_market/services/local_store.dart';
 import 'package:super_market/services/quote_feeds.dart';
-import 'package:super_market/services/symbol_directory.dart';
-import 'package:super_market/services/watchlist_repository.dart';
 import 'package:super_market/services/source/polling_source.dart';
 import 'package:super_market/services/source/polling_sources.dart';
+import 'package:super_market/services/symbol_directory.dart';
+import 'package:super_market/services/watchlist_repository.dart';
 
 /// 不联网的通道替身：只用来验证「界面是否按通道能力显示」。
 class FakeFeed implements QuoteFeed {

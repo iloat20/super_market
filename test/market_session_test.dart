@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:super_market/utils/format.dart';
 import 'package:super_market/utils/market_session.dart';
 import 'package:super_market/widgets/market_session_badge.dart';

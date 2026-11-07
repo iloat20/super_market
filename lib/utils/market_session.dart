@@ -65,7 +65,7 @@ enum MarketSession {
   /// 界面上不必分辨（也不必为多出来的三个字改布局）。
   holiday('休市');
 
-  const MarketSession(this.label);
+  MarketSession(this.label);
 
   final String label;
 

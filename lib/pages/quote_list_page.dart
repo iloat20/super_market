@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show listEquals;
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 // 只剩列表玻璃组（GlassBackdropGroup）还在用：页头那块玻璃已经拆掉
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../config/app_config.dart';
 import '../models/quote.dart';

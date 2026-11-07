@@ -136,10 +136,12 @@ class FileKeyValueStore implements KeyValueStore {
     );
   }
 
-  Future<Map<String, String>> _load() async {
+  Future<Map<String, String>> _load() {
     final Map<String, String>? cached = _cache;
     if (cached != null) {
-      return cached;
+      // 非 async 函数不能直接 return 一个 Map：包一层 Future.value，
+      // 完成时机与 async 版本一致（都是微任务），只是不再有隐式包装。
+      return Future<Map<String, String>>.value(cached);
     }
     // C-03 前半：首读必须单飞。并发首读时每个调用方各自读盘、各自赋
     // _cache，拿到的是**不同的 map 实例**——后完成者覆盖先完成者，

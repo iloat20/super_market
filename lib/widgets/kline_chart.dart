@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../models/kline.dart';
 import '../models/quote.dart';
@@ -12,7 +12,7 @@ enum ChartMode {
   intraday('分时'),
   daily('日K');
 
-  const ChartMode(this.label);
+  ChartMode(this.label);
 
   final String label;
 }

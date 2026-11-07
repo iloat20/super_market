@@ -32,10 +32,16 @@ import io.flutter.plugin.common.MethodChannel
  * 实现，无法在测试里复现。所以 API 30 以上只走投票，固定 mode 只留给
  * 没有 `setFrameRate` 的旧系统兜底。
  *
- * ⚠️ 投票也只是**请求**。要以实测为准：`logcat -s super_market` 看
+ * ⚠️ 投票也只是**请求**。要以实测为准：`logcat -s app.supermarket` 看
  * `refresh: 投票 ... -> ...` 这行，再 `dumpsys display` 看当前 mode。
  */
 class MainActivity : FlutterActivity() {
+    /**
+     * ADPF 会话（`adpf.start` / `adpf.report` / `adpf.stop`）。
+     * 懒加载：只有 Dart 侧真的调 start 才会去扫线程、建会话。
+     */
+    private val adpf by lazy { AdpfSession(applicationContext) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // API 30 以下没有 setFrameRate，只能退回固定 mode 兜住最高档
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -54,6 +60,21 @@ class MainActivity : FlutterActivity() {
                         val fps = call.argument<Int>("fps") ?: 0
                         val fixed = call.argument<Boolean>("fixed") ?: false
                         result.success(applyFrameRate(fps, fixed))
+                    }
+                    "adpf.start" -> {
+                        val target = (call.argument<Number>("targetNanos") ?: 0).toLong()
+                        result.success(adpf.start(target))
+                    }
+                    "adpf.report" -> {
+                        adpf.report(
+                            (call.argument<Number>("workNanos") ?: 0).toLong(),
+                            (call.argument<Number>("targetNanos") ?: 0).toLong(),
+                        )
+                        result.success(null)
+                    }
+                    "adpf.stop" -> {
+                        adpf.stop()
+                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }
@@ -91,7 +112,7 @@ class MainActivity : FlutterActivity() {
             window.attributes = window.attributes.apply { preferredRefreshRate = target }
         }
 
-        Log.i("super_market", "refresh: 投票 ${fps}Hz fixed=$fixed -> ${target}Hz (modeId=${mode.modeId})")
+        Log.i(LOG_TAG, "refresh: 投票 ${fps}Hz fixed=$fixed -> ${target}Hz (modeId=${mode.modeId})")
         return Math.round(target)
     }
 
@@ -136,7 +157,7 @@ class MainActivity : FlutterActivity() {
         val display = display() ?: return
         val current = display.mode
         Log.i(
-            "super_market",
+            LOG_TAG,
             "refresh: 当前=${current.refreshRate}Hz " +
                 "(${current.physicalWidth}x${current.physicalHeight}, modeId=${current.modeId}); " +
                 "全部档位=" + display.supportedModes.joinToString {
@@ -153,7 +174,7 @@ class MainActivity : FlutterActivity() {
             preferredDisplayModeId = best.modeId
             preferredRefreshRate = best.refreshRate
         }
-        Log.i("super_market", "refresh: 固定 mode ${best.refreshRate}Hz (modeId=${best.modeId})")
+        Log.i(LOG_TAG, "refresh: 固定 mode ${best.refreshRate}Hz (modeId=${best.modeId})")
     }
 
     private companion object {

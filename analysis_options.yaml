@@ -13,3 +13,16 @@ analyzer:
 linter:
   rules:
     - avoid_print
+    # —— Dart 3.13 随主构造函数一起新增的规则（README 二·四十四）——
+    # 只收「本项目实测 0 命中」或「改完 0 命中」的：收进来是为了防止以后写回去，
+    # 不是为了换个写法。实测 115 处命中的 unnecessary_type_name_in_constructor
+    # （要求把所有构造器改写成 `new()`）与实验性的 use_primary_constructors 没收，
+    # 理由写在 README 同一节。
+    - async_return_with_no_await
+    - empty_container_bodies
+    - initialize_in_field_declaration
+    - no_dynamic_casts
+    - no_raw_types
+    - unnecessary_const_in_enum_constructor
+    - unnecessary_primary_constructor_body
+    - use_declaring_parameters

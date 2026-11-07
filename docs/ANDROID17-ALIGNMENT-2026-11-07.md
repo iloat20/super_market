@@ -13,7 +13,7 @@
 
 | 判据 | 状态 | 一句话 |
 | --- | --- | --- |
-| 构建链 | ✅ 已对齐 | compileSdk / targetSdk **37**，AGP 9.1.0 / Gradle 9.3.1 / JDK 21 |
+| 构建链 | ✅ 已对齐 | compileSdk / targetSdk **37**，AGP 9.5.1 / Gradle 9.6.0 / KGP 2.4.21 / JDK 21 |
 | 16KB 页 | ✅ 通过 | `zipalign -P 16` + 三个 `.so` 的 `p_align` 双验 |
 | edge-to-edge | ✅ 已做 | `SystemUiMode.edgeToEdge` + 四处 `SafeArea` |
 | 明文流量 | ✅ 双闸 | `network_security_config` + Dart 侧 `requireHttps()` |
@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | compileSdk / targetSdk | `37` / `37` | `android/app/build.gradle.kts` |
 | minSdk | `24`（Android 7.0） | 经 `flutter.minSdkVersion`；`aapt dump badging` → `sdkVersion:'24'` |
-| AGP / Gradle / JDK | `9.1.0` / `9.3.1` / `21` | `settings.gradle.kts`、`gradle-wrapper.properties`、`compileOptions` |
+| AGP / Gradle / KGP / JDK | `9.5.1` / `9.6.0` / `2.4.21` / `21` | `settings.gradle.kts`、`gradle-wrapper.properties`、`compileOptions` |
 | Java / Kotlin 目标 | 21 / JVM 21 | `compileOptions`、`kotlin { jvmTarget }` |
 | 断言 | `EXPECT_TARGET_SDK = 37` | `tool/verify_apk.py`，改回 36 会当场红 |
 
@@ -266,5 +266,5 @@ for n in z.namelist():
 ```bash
 adb shell getconf PAGE_SIZE                    # 16384 = 16KB 页
 adb shell dumpsys package app.supermarket | grep -E "targetSdk|minSdk"
-adb logcat -s super_market                     # 刷新率投票是否正常
+adb logcat -s app.supermarket                  # 刷新率投票 / ADPF 会话是否正常
 ```

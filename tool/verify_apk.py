@@ -197,6 +197,52 @@ def main(argv: list[str]) -> int:
     if not r8_ok:
         failed.append("dex 过大，R8 可能没生效：检查 isMinifyEnabled / isShrinkResources")
 
+    # ---- 3a. ADPF 会话代码必须在包里 ----
+    #
+    # `lib/utils/adpf.dart` + `AdpfSession.kt` 是应用层自己接的 ADPF（引擎 3.47.9
+    # 还没有，见 README 二·四十六）。Dart 侧完全靠通道，平台侧被剥掉的话只会拿到
+    # `MissingPluginException` 然后**静默降级**——不崩、不报错、看起来一切正常。
+    # R8 不会重命名系统类，所以类名字符串在不在 dex 里就是「代码还在不在」的证据。
+    adpf_ok = b"PerformanceHintManager" in dex
+    print(
+        f"ADPF   : {OK if adpf_ok else BAD} "
+        f"性能提示会话{'已打进包' if adpf_ok else '不在包里（Dart 侧会静默降级）'}"
+    )
+    if not adpf_ok:
+        failed.append(
+            "dex 里找不到 PerformanceHintManager：AdpfSession 被 R8 剥掉了，"
+            "ADPF 会静默降级成「没接」"
+        )
+
+    # ---- 3b. Baseline Profile 必须在包里，自己写的那几条得活过 R8 ----
+    #
+    # 依赖 AAR 自带的 profile 由 AGP 自动合并（本项目只有依赖时实测 926 B），
+    # `android/app/src/main/baseline-prof.txt` 是我们补的 Flutter 胶水层
+    # （FlutterActivity / FlutterEngine / FlutterLoader / FlutterJNI / DartExecutor）。
+    # 少了它，冷启动那几十个 Java 方法只能走解释执行。
+    prof_name = "assets/dexopt/baseline.prof"
+    prof = z.read(prof_name) if prof_name in names else b""
+    print(f"Profile: {OK if prof else BAD} baseline.prof {len(prof)} B（仅依赖时为 926 B）")
+    if not prof:
+        failed.append(f"包里没有 {prof_name}：Baseline Profile 没打进去")
+
+    combined = os.path.join(
+        "build", "app", "intermediates", "combined_art_profile",
+        "release", "compileReleaseArtProfile", "baseline-prof.txt",
+    )
+    if os.path.exists(combined):
+        with open(combined, encoding="utf-8", errors="replace") as f:
+            profile_text = f.read()
+        kept = "Lio/flutter/embedding/android/FlutterActivity;" in profile_text
+        print(
+            f"        {OK if kept else BAD} 自写规则经 R8 改写后仍在（FlutterActivity）"
+        )
+        if not kept:
+            failed.append(
+                "自写的 baseline-prof.txt 经 R8 后一条不剩：方法签名可能随 Flutter "
+                "版本变了，按新的 dex 重新取签名"
+            )
+
     # ---- 3b. 编译器元数据不该出现在包里 ----
     #
     # `kotlin/*.kotlin_builtins` 是给编译器/IDE 读的声明文件，运行期没有任何
@@ -383,7 +429,7 @@ def main(argv: list[str]) -> int:
 
     print(
         f"{OK} 全部通过：64 位单架构、targetSdk {EXPECT_TARGET_SDK}（Android 17）、"
-        "R8 生效且保留了 JNI 类、新浪主力 + 腾讯备份 + 美股补位已打进包、"
+        "R8 生效且保留了 JNI 类、ADPF 会话在包里、新浪主力 + 腾讯备份 + 美股补位已打进包、"
         "iTick 推送链不在运行时"
     )
     return 0

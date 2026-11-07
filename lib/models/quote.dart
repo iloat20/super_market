@@ -13,7 +13,7 @@ enum QuoteSource {
   /// REST 拉取的快照（收盘后 / 开盘前，用于填充首屏）
   snapshot('快照');
 
-  const QuoteSource(this.label);
+  QuoteSource(this.label);
 
   final String label;
 }
@@ -31,7 +31,7 @@ enum TradingStatus {
   /// 未知值：官方后续新增枚举时，不让 UI 崩，也不瞎猜含义
   unknown('—');
 
-  const TradingStatus(this.label);
+  TradingStatus(this.label);
 
   final String label;
 

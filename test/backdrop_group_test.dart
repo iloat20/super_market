@@ -1,11 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:super_market/pages/quote_list_page.dart';
 import 'package:super_market/services/local_store.dart';
-import 'fake_feed.dart';
 import 'package:super_market/services/watchlist_repository.dart';
 import 'package:super_market/widgets/glass.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'fake_feed.dart';
 
 /// 滚动掉帧的结构性防线。
 ///

@@ -16,10 +16,10 @@ Flutter 自绘的液态玻璃界面。行情走**新浪财经（主）+ 腾讯�
 | 版本 | `1.0.7+35` |
 | 包名 / 显示名 | `app.supermarket` / 超级市场 |
 | 平台 | Android 7.0+（minSdk 24，targetSdk 37），只打 `arm64-v8a` |
-| 安装包 | **7.91 MB**（release：R8 + `.so` 压缩存储） |
+| 安装包 | **7.93 MB**（release：R8 + `.so` 压缩存储） |
 | 技术栈 | Flutter 3.47.9 / Dart 3.13.7；无状态管理库、无图表库 |
-| 运行时依赖 | `liquid_glass_widgets`、`path_provider`、`jni` / `jni_flutter` |
-| 规模 | `lib/` 52 文件 12.9k 行；`test/` 59 文件 12.4k 行、**456 条用例**（含 5 张 golden） |
+| 运行时依赖 | `material_ui`（含 `cupertino_ui`）、`liquid_glass_widgets`、`path_provider`、`jni` / `jni_flutter` |
+| 规模 | `lib/` 53 文件 13.3k 行；`test/` 64 文件 12.8k 行、**490 条用例**（含 5 张 golden） |
 
 ## 能力
 
@@ -56,8 +56,8 @@ python tool/verify_apk.py  # 装机前自检：ABI / targetSdk / 端点是否真
 
 ```bash
 flutter analyze                       # 必须 0 issue
-flutter test --exclude-tags preview   # 449 通过（CI 口径）
-flutter test                          # 456 通过（本机全量，含 5 张 golden）
+flutter test --exclude-tags preview   # 483 通过（CI 口径）
+flutter test                          # 490 通过（本机全量，含 5 张 golden）
 ```
 
 CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-latest**：golden harness
@@ -71,10 +71,14 @@ CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-lates
 | 换数据源 | 二·九 数据源抽象 · 二·十 免费源实测 · 二·十一 切到公开源 · 二·十三 搜索 |
 | 改界面 / 玻璃 | 二·五 液态玻璃 · 二·二十 厚玻璃 · 二·三十四 边缘光学（v21 是当前档） |
 | 市场支持 | 二·十五 港股 · 二·三十三 美股 · 二·二十九 时段角标 · 二·三十八 交易日历 |
-| 性能 | 二·二十三 / 二·二十四 · 二·三十七 · `docs/PERF-*.md` |
+| 性能 | 二·二十三 / 二·二十四 · 二·三十七 · 二·四十五 / 二·四十六（Android 三个开关 + 自建 ADPF） · 二·四十七（Baseline Profile / App Startup） · `docs/PERF-*.md` |
 | 为什么这么写 | 一、iTick 协议事实 · 二·八 收盘快照 · 二·十二 走势图 · 二·二十七 来源判定 |
 | 审查 / 路线 | 九、已验证 / 未验证 · `docs/review-2026-11-05.md` · `docs/ROADMAP-2026-11-06.md` |
 | Android 17 对齐 | `docs/ANDROID17-ALIGNMENT-2026-11-07.md`（16KB 页 / edge-to-edge / 16 项行为变更逐条判定） |
+| 依赖 / 设计系统升级 | 二·四十三 Material/Cupertino 解耦（`material_ui` 1.10） · 二·四十二 Dart 新语法评估 · 二·四十四 3.13 新 lint 与格式化 |
+| 工具链 / 构建 | 二·四十八 AGP 9.2 首次升级 · **二·五十二 AGP 9.5.1 / Gradle 9.6.0 / KGP 2.4.21**（R8 分析器独立任务） |
+| 后续升级候选 | 二·五十一 三条路线（防守 / 平台对齐 / 验证能力） + 明确不做 · `tool/probe_http3.sh` / `tool/probe_brotli.sh` 端点探针 |
+| 走势 / 缓存 | 二·十二 走势图 · **二·五十三 增量日线**（TTL 过期后拉 2 根拼 1 根，`tool/probe_kline_delta.py` 可复跑） |
 
 > 下文是**开发日志**：二·X 各章按时间记录，包含大量已移除的历史形态
 > （iTick WebSocket、Token、配额卡、「快照」字样……），读到这些词一律理解为「当时」。
@@ -88,8 +92,8 @@ CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-lates
 | 项 | 当前值 |
 | --- | --- |
 | 行情链路 | 新浪主 + 腾讯备（A/H）+ 东财补位（美股），3s HTTP 轮询；**零凭证、无 WebSocket、无 iTick**。K 线走新浪 / 腾讯，搜索走东方财富 |
-| 门禁 | `flutter analyze` 0 issues；`flutter test` **420 通过 + 0 skip**（CI 口径 `--exclude-tags preview` 为 413，少的 7 条是 golden harness） |
-| 日志 tag | 原生 `super_market`（`MainActivity.kt`，包名改成 `app.supermarket` 后 tag 没跟着改）；Dart `debugPrint` 走 `flutter` |
+| 门禁 | `flutter analyze` 0 issues（含 8 条 Dart 3.13 新 lint，见 二·四十四）；`flutter test` **490 通过 + 0 skip**（CI 口径 `--exclude-tags preview` 为 483，少的 7 条是 golden harness；相对 476 / 469 多出的 14 条 = 二·五十三 增量日线守门 11 条 + 二·五十一 Brotli 内容编码守门 3 条） |
+| 日志 tag | 原生 `app.supermarket`（= 包名，Kotlin 唯一常量 `LogTag.kt`，`MainActivity` / `AdpfSession` 共用）；Dart `debugPrint` 走引擎固定的 `flutter`。两边一起看：`adb logcat -s app.supermarket flutter` |
 | 帧数据 | `tool/measure_frames.sh`（profile 包 + `PERF_LOG` → `FrameTiming`）；`dumpsys gfxinfo` 对 Flutter 自绘恒为 0 帧 |
 | 签名 | 正式密钥：`android/keystore.properties` → `android/keystore/supermarket-release.jks`，**两者都在 `.gitignore` 里，务必另行备份**（丢了就无法以同一身份发版） |
 
@@ -135,6 +139,9 @@ CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-lates
 - **构建入口已合并**（2026-11-07）：`tool/build_apk.sh` 是唯一入口（默认不混淆、
   自动跑 `verify_apk.py`）；根目录 `build_apk.sh` / `build_apk.cmd` 改成
   「打印提示 + `exit 1`」的废弃壳，走错门会当场失败，见 二·三十九。
+- **已迁到 `material_ui` 1.10**（2026-11-07）：42 处 import 从 `package:flutter/material.dart`
+  换到 `package:material_ui/material_ui.dart`，5 张 golden 逐字节不变；代价是 +3 个依赖、
+  Flutter 下限抬到 3.47、包体 +12 KB，见 二·四十三。
 
 **架构一句话**：单 `StatefulWidget` + 每只股票一个 `ValueNotifier<Quote>` 做局部刷新，
 没有状态管理库、没有后台保活、没有前台服务。`QuoteFeed` 接口在上、`PollingSource` 协议在下，
@@ -224,9 +231,9 @@ supermarket/
 │   ├── utils/                 时段、交易日、格式化、帧率、生命周期、日志、探针
 │   ├── widgets/               quote_tile / quote_detail_sheet / kline_chart / watchlist_sheet
 │   │                          glass / glass_rim（材质）、taiji_mark、market_session_badge、hit_target
-│   └── preview/               widget_previews（golden harness 的包装）
-├── test/                      57 个文件 / 11.5k 行；preview/goldens 5 张基线
-├── tool/                      真网探针（polling / kline / search / hk / us）、build_apk.sh、verify_apk.py、pngdiff.py、measure_frames.sh
+│   └── preview/               widget_previews（6 个 @Preview：卡片 / 角标状态，走真主题与真玻璃）
+├── test/                      59 个文件 / 12.4k 行；preview/goldens 5 张基线
+├── tool/                      真网探针（polling / kline / search / hk / us）、build_apk.sh、preview.sh、verify_apk.py、pngdiff.py、measure_frames.sh、android_engine_caps.sh
 ├── docs/                      PERF-* / ROADMAP-* / review-* / dep-liquid-glass / preview（真机截图）
 └── android/                   applicationId=app.supermarket；keystore 不入库
 ```
@@ -2551,6 +2558,1152 @@ observed 规则。所以做成一张**手写表**，每年补一次，不引外�
 `AppLog.i` 在 release 本来就不输出，`w` 只在失败时出现。
 
 
+## 二·四十一、Widget Previews：把视觉回路缩到「存盘即见」（已接入，2026-11-07）
+
+项目里一直有 `lib/preview/widget_previews.dart`（6 个 `@Preview`），但**预览环境本身
+没在这台机器上跑起来过**：`flutter` 不在 PATH、代理会拦本地端口、镜像也没设。
+`tool/preview.sh` 把这三件事按 `build_apk.sh` 同一套口径包好了：
+
+| 命令 | 作用 |
+| --- | --- |
+| `./tool/preview.sh` | 启动预览面板（默认 Chrome） |
+| `./tool/preview.sh --web-server` | 只起服务并打印 URL，不拉浏览器 |
+| `./tool/preview.sh --clean` | 删 `.widget_preview/` 脚手架（下次重新生成） |
+
+**预览覆盖**：行情卡（上涨 / 下跌 / 停牌 / 1.3× 大字号）、时段角标（盘中 / **节假日休市**）。
+两条约定写在文件头：外观复用真主题与 `kGlassSurface`（不做假图），时间钉死
+（`QuoteTile` / `MarketSessionBadge` 都支持注入时钟）。
+
+**3.47 转正后值得用的三点**（都在 SDK 源码里核对过，不是听说的）：
+
+1. **本地构建缓存**：首次启动把脚手架生成到 `.widget_preview/`，并写
+   `preview_manifest.json`（Dart SDK 版本 + 每个 pubspec 的 MD5）。之后只要这两样
+   没变，就跳过 `flutter create` 与 pub get，启动明显更快；改 pubspec 会自动重建。
+2. **检测逻辑走 Analysis Server**：`lsp_preview_detector.dart` 启动独立的 analysis
+   server，经 LSP + DTD 拿 `@Preview` 列表；`flutter tool` 进程不再自己扛整棵分析树，
+   内存与启动都轻了（整机内存是 tool + analysis server 两份，别当成「总内存更省」）。
+   真出问题有 `--legacy-preview-detection` 回退。
+3. **面板支持搜索 / 过滤**：预览多了之后按名字找，不用滚。
+
+> ⚠️ 本机验证进度：脚手架与 manifest 已生成（缓存链路走通），但**端到端渲染没验成**——
+> 沙箱的安全策略拦了 `reg.exe`（Flutter 的 web 设备发现会查 Chrome/Edge 版本），
+> 命令停在选设备那一步。普通终端里跑 `./tool/preview.sh` 不受这个限制；
+> IDE 里的预览面板也走同一条链路。
+
+**为什么不全用 golden**：golden 能抓 1px，但改一个圆角要等整棵树建完；预览是「存盘
+即见」的草稿纸，golden 退回它该干的活——像素回归。两者不互相替代。
+
+
+## 二·四十二、Dart 3.13 新语法评估：主构造函数 / 点简写（暂不迁移，2026-11-07）
+
+**先在本机 SDK 上实测，不靠记忆**：Dart 3.13.7 支持主构造函数
+（`class const Kline({...})` 可用，命名参数 / 默认值 / const 都在）；点简写也可用，
+但它是 **Dart 3.10** 的特性，不是 3.13。
+
+**主构造函数试点**：拿 `Kline` + `IntradayPoint` 真改了一遍：
+
+| | 行数 | 说明 |
+| --- | --- | --- |
+| 迁移前 | 109 | 构造器 9 行 + 字段声明 15 行（含文档） |
+| 迁移后 | 93 | 头部参数列表 20 行，字段声明消失 |
+| 净收益 | **-16 行（-15%）** | 两个类、7 + 4 个字段 |
+
+**没有保留这次迁移**，三个理由：
+
+1. **文档要搬家**：本项目每个字段都有 `///`（单位、坑、口径）。迁移后说明只能挂在
+   参数上——按 Dart 的文档模型，它属于构造器参数，不再属于字段；`kline.volume` 这类
+   字段的悬停说明会变弱。
+2. **头部变重**：15 个字段的 `Quote`、4 个长文档字段的 `StockConfig`，迁移后类头会变成
+   20–50 行的参数墙，比现在的「构造器 + 字段」两段式更难扫读。省下的是字段声明，
+   不是「十几行压到一两行」——参数本身一行都少不了。
+3. **不是所有类都能迁**：`KlineResult` 有非重定向命名构造 `failed`，语言层面与主构造
+   冲突；`Quote` / `StockConfig` 的 const 还要写成 `class const ...`，声明风格全库分裂。
+
+**点简写**：它按**上下文类型**解析静态成员，`Duration d = .zero`、`fontWeight: .w600`
+成立；但 `AppConfig.pollInterval` **不能**写成 `.pollInterval`——上下文类型是 `Duration`，
+不是 `AppConfig`。全库粗数：`FontWeight.` 23 处、`MarketSession.` 46 处、
+`TradingStatus.` 22 处，真正常用的是枚举与控件参数，不是配置常量。
+
+**结论（当时的）**：不搞批量迁移。新写的、字段少于 5 个、不挂文档的小 DTO
+（解析中间结构之类）可以直接用主构造函数；现有模型保持原样。`dart fix --dry-run`
+当时没报迁移建议（Nothing to fix）——这句后来被证伪，见下方复核。
+
+#### 复核补记（2026-11-07 晚）：三条理由倒了两条，试点转为正式落地
+
+1. **理由 1「文档要搬家、悬停说明变弱」被证伪**。用 `dart doc` 造最小包实测：
+   declaring parameter 上的 `///` 会生成到**字段页** `Sample/code.html` /
+   `Sample/count.html`，构造器页 `Sample.html` 里出现 **0 次**。也就是
+   dartdoc / analyzer 文档模型把它当字段文档，不是构造器参数文档
+   （IDE 悬停未单独验，但取的是同一份文档）。文档不丢。
+2. **`dart fix` 其实有修复**，只是要显式 `--code=use_primary_constructors`：
+   三个文件共 **8 条建议**（quote 4 / kline 2 / app_config 2）。但**照它改是负收益**：
+   它只把构造器签名挪进类头，`this.xxx` 和字段声明一行没删，还把
+   `enum QuoteTrend { ... }` 改成 `enum QuoteTrend() { ... }`（空主构造，纯噪声）；
+   601 → **589 行，只省 12 行（-2%）**，同时触发 **31 条
+   `use_declaring_parameters` info**，直接破「`analyze` 0 issue」门禁。
+   真正消掉字段的是**手工 declaring parameters**（`required final DateTime time`），
+   自动修复不代劳。
+3. **「没有新语义」属实**：[feature spec](https://github.com/dart-lang/language/blob/main/accepted/3.13/primary-constructors/feature-specification.md)
+   原文 "It does not provide any new semantics at all"，语义可推导成「无主构造的
+   等价声明」。但**语言限制也真实存在**：有主构造的类不能有其它 non-redirecting
+   generative constructor——本机实测 `KlineResult.failed` 报
+   `non_redirecting_generative_constructor_with_primary`。改成**重定向构造**
+   `: this(items: const <Never>[], sourceId: '', error: error)` 即可迁。
+   规范里 3.13 的破坏性语法变更（普通函数禁用 `final T x` 形参、`factory()`
+   改解析为构造器）因 `pubspec.yaml:11` 已是 `sdk: '^3.13.0'` **早就生效**，
+   不是这次迁移引入的。
+
+**这次把 `lib/models/kline.dart` 真迁了**：三个类全用 declaring parameters，
+`KlineResult.failed` 改重定向构造，**109 → 90 行（-19 / -17%）**；
+`flutter analyze` 0 issue、该文件 `dart format` 零改动、全量 **472 测试通过**。
+`Quote`（15 字段）与 `StockConfig`（4 字段但约 20 行字段文档）**保持传统写法**：
+迁完类头分别约 48 / 28 行参数墙，比「构造器 + 字段」两段式更难扫读。
+
+**结论修订**：「不搞批量迁移」仍成立，但理由从三条收敛成**一条：可读性**；
+「文档会丢」不再作为理由。字段少、文档短的类值得一迁，重文档大模型不迁。
+
+
+## 二·四十三、Material/Cupertino 解耦：迁到 material_ui 1.10（已迁移，2026-11-07）
+
+**这一条是真该迁，也真迁了**：42 个 Dart 文件、42 处 import，一条命令改完，
+5 张 golden 逐字节不变。但「更小的依赖面」这个理由站不住——迁完依赖是**变多**的。
+
+### 先说核对结果（对着本机 SDK 与 pub.dev，不看记忆）
+
+| 说法 | 核对 |
+| --- | --- |
+| 3.47 把 Material/Cupertino 拆成独立包 | **成立**。`material_ui` 1.10.0、`cupertino_ui` 1.1.6，2026-02-18 首发 |
+| 「版本 1.0」 | **过时**。1.0.0 是 8/12 随 3.47 首发的那个，现已 1.10.0（17 个版本，周更） |
+| `dart fix --apply --code=migrate_design_widgets` | **成立**。规则在 SDK 的 `packages/flutter/lib/fix_data/fix_material/fix_material.yaml`，date `2026-07-08` |
+| 「11 月稳定版正式弃用」 | **还没发生**。本机 3.47.9（10-29）的 `material.dart` 里一个 `@deprecated` 都没有；fix_data 那条写的是 `TODO(...): Link eventual deprecation PR`。官方口径是「计划在秋季稳定版弃用，删除更晚、无日期」 |
+| 「只依赖实际用到的少数组件，依赖面更小」 | **反了**。见下表 |
+
+### 迁移成本与收益（实测，不是估算）
+
+| 项 | 实际 |
+| --- | --- |
+| 改动面 | 42 个文件各 1 行 import；另按字母序重排受影响的 import 组 |
+| APK | `8 298 963` → **`8 311 440` 字节**（+12 477 B，+0.012 MB） |
+| 依赖 | **+3**：`cupertino_ui`、`flutter_localizations`、`intl`（`material_ui` 硬依赖） |
+| Flutter 下限 | 被 `material_ui` 的约束**抬到 3.47**（`flutter: >=3.47.0`） |
+| 视觉 | 5 张 golden 的 md5 与迁移前**完全相同** |
+| 升级节奏 | Material 的修复/新组件从「等季度 SDK」变成 `pub upgrade`（1.5.0 起已带 M3 Expressive） |
+
+真实的收益是**升级节奏**和**以后能拿到新组件**，不是包体也不是依赖数。包体只是几乎不变。
+
+### 怎么做的
+
+```bash
+flutter pub add material_ui                        # 只加这一个，cupertino_ui 是它的依赖
+dart fix --apply --code=migrate_design_widgets     # 42 处 import 一次改完
+```
+
+`dart fix` 只替换字符串，**不重排 import**。`package:flutter/...` → `package:material_ui/...`
+之后字母序变了（`material_ui` 要排在 `liquid_glass_widgets` 之后），所以又按组重排了
+一遍，否则全库只有这几行不合自己的规范。
+
+**回退是无声的，所以加了闸门**：旧库在 3.47 里照样编译，IDE 的自动补全默认给的就是它，
+随手一个 import 就会把两套 Material 同时拉进包里。`test/design_library_boundary_test.dart`
+扫 `lib` / `test` / `tool`，命中旧库 import 就红并点名文件；红态用合成目录验证过
+（material / cupertino / 缩进三种形态都命中），不是一条恒绿的摆设。
+
+### 一个必须知道的行为差异：没有加 CompatibilityBridge
+
+`liquid_glass_widgets` 有 **69 个文件** import 的是 `package:flutter/cupertino.dart`（旧库），
+而本项目现在用的是新库。理论上这是官方要求加 `MaterialUiCompatibilityBridge` 的场景。
+**实测不需要，理由是可验证的**：
+
+1. 玻璃的亮度解析有一级外部解析器，`main.dart` 里显式传了
+   `brightnessResolver: Theme.maybeBrightnessOf`。它短路在最前面，旧的
+   `CupertinoTheme.of(context).brightness` 那一级**永远不会被走到**。
+2. 包内真正依赖旧 `CupertinoTheme` 的地方只剩 `textTheme.textStyle.color`，出现在
+   `GlassListTile` / `GlassStepper` / `GlassDisclosureGroup` / 分段控件 / TabBar 里——
+   本项目一个都没用（用的是 `GlassPanel` / `GlassContainer` / `kGlassSurface`）。
+3. 5 张 golden 逐字节不变，覆盖了列表页、详情页、订阅弹层三张整页。
+
+**触发条件记在这里**：以后若引入用旧库、且 API 上跨库传类型的依赖，或开始用上面那几个
+组件，再加 `MaterialUiCompatibilityBridge`（放在 `MaterialApp.builder` 里）。
+
+### 两个坑
+
+1. **别在仓库里跑全量 `dart format`**。Dart 3.13 的格式化器是 tall style，与仓库现有的
+   短行风格不兼容：跑一次会重排 **67 个文件、1375 行**。我第一次就是这么踩的，已整体
+   回退只重做迁移。也**别指望换旧风格对齐**——`dart format --language-version=3.6`
+   反而会动 **82 个文件**。这个仓库本来就不是 formatter-clean，只给新文件跑，或干脆不跑。
+2. **`uses-material-design: true` 不能删**。图标字体仍由它打进包（tree-shake 后
+   `MaterialIcons-Regular.otf` 只剩 2 484 B，10 个用到的字形）。删了图标会变方框——
+   golden 会先红，但别等它红。
+
+**未验**：真机本轮没验成——`adb devices` 从 11:35 起为空（USB 掉线），安装与截图都没做。
+上面「视觉不变」的证据来自 golden，不是来自手机。
+
+
+## 二·四十四、Dart 3.13 的新 lint 与格式化器（启用 8 条 / 拒 1 条，2026-11-07）
+
+**结论：9 条常规新 lint 收了 8 条（都是零成本或改完归零的），
+`unnecessary_type_name_in_constructor` 明确不收；格式化器的三条改进验过了，但这次不采用。**
+
+### 3.13 到底加了哪几条（本机实测，不是照抄发布说明）
+
+把 9 条常规规则全开、加 1 条实验规则，跑一次 `flutter analyze` 数命中：
+
+| 规则 | 本项目命中 | 自动修复（实测 `dart fix --dry-run`） |
+| --- | --- | --- |
+| `async_return_with_no_await` | 5 | **没有**（Nothing to fix） |
+| `empty_container_bodies` | 0 | 有 |
+| `initialize_in_field_declaration` | 0 | 未触发，未验 |
+| `no_dynamic_casts` | 0 | 无（诊断类规则，本来就没有 fix） |
+| `no_raw_types` | 0 | 无 |
+| `unnecessary_const_in_enum_constructor` | 4 | 有 |
+| `unnecessary_primary_constructor_body` | 0 | 有 |
+| `unnecessary_type_name_in_constructor` | **115** | 有 |
+| `use_declaring_parameters` | 0 | 有 |
+| `use_primary_constructors`（实验） | 0 | — |
+
+「每个新 lint 都带自动修复」这句话不成立：`async_return_with_no_await` 就没有。
+另外 `use_declaring_parameters` / `unnecessary_primary_constructor_body` 只对**主构造函数**里的
+写法生效——本项目一个主构造函数都没有（二·四十二），所以它们今天是 0 命中，
+收进来纯粹是「以后真写了也会被按住」。
+
+### 收进来的 8 条
+
+`analysis_options.yaml` 里 `linter.rules` 就是清单。逻辑很窄：**今天 0 命中的直接收（防回退），
+有命中但能一次改干净的也收（改完 0 命中）**。没有一条是「为了换个写法」。
+
+| 改了什么 | 处数 | 说明 |
+| --- | --- | --- |
+| 枚举构造器去掉冗余 `const` | 4 | `const QuoteSource(this.label);` → `QuoteSource(this.label);`，枚举构造器本来就是隐式 const |
+| 去掉不 await 的 `async` | 3 个函数 | 见下 |
+| 测试的 `addTearDown(() async => ...)` 去 `async` | 2 | 闭包返回 Future 但没有 await |
+
+`async` 那三处不是无脑删的，逐条看过语义（这条规则的真实含义是「多一个微任务，
+并把同步异常包成 Future 异常」）：
+
+- `kline_loader.loadDaily`：函数体只有一句 `return _load(...)`，去掉后和隔壁
+  `loadIntraday` 一致——那个本来就不是 `async`，同一个类里两种写法才是真的不一致。
+- `local_store._load`：去掉 `async` 后，cache 命中分支要显式
+  `Future.value(cached)`——`async` 原本替 `return cached;` 做了这层包装。
+  单飞逻辑一个字没动，全量测试里那几条并发用例照绿。
+- 结论：`async` 只在**需要把同步 throw 变成 Future error** 时才该留着，本项目这三处都不需要
+  （`_load` 自己就是 `async`）。
+
+### 拒掉的那条：`unnecessary_type_name_in_constructor`（115 处）
+
+它要求把所有构造器声明改写成 `new` 关键字形式：
+
+```dart
+// BAD（本项目现状）
+class C { C(); C.name(); }
+// GOOD（规则要求）
+class C { new(); new name(); }
+```
+
+115 处 `const Kline(...)` / `const StockConfig(...)` 全中，而**调用处一个字都不用改**。
+这和 二·四十二「不批量迁主构造函数」是同一类取舍：纯声明风格，收益是少打几个字符，
+代价是全库换一遍脸、`grep "Kline("` 直接失效。不收。
+
+### 格式化器：三条改进都验了，但这次不采用
+
+用同一份代码分别按 3.13 与 `--language-version=3.6` 跑 `dart format --output=show` 对拍：
+
+| 行为 | 3.6 | 3.13 |
+| --- | --- | --- |
+| 没有 `;` 的 `mixin` 声明前后强制空行 | 不动 | **加空行** |
+| 扩展类型表示子句拆行时补尾逗号 | 挤一行、无尾逗号 | **一参一行 + 尾逗号** |
+| 不同类型的 import 之间插空行 | 不动 | **插空行（只插，不重排）** |
+
+前两条是真的（第三条也实测到了：`package:` / `dart:` / 相对导入换类时各插一个空行，
+但**顺序一个字不动**——别指望格式化器替你排序）。
+
+不采用的原因还是那个：这些改进和 tall style 绑在一起，而仓库不是 tall-style 格式化的
+（全量 `dart format` 会动 **67 文件 1375 行**，见 二·四十三 坑 1）。要用就得先接受一次
+纯格式大提交，那是独立的一刀，不该混在功能改动里。
+
+### 验证
+
+- `flutter analyze` 0 issue（8 条规则全开）
+- 全量 **460** 条测试全绿（CI 口径 453）
+- `dart fix --dry-run` 现在是 `Nothing to fix`——上面那些是手改的，不是 fix 扫出来的
+
+
+## 二·四十五、Android 三个「性能开关」：两个没到货，一个用不上（2026-11-07）
+
+**结论：ADPF 引擎里没有，HCPP 用不上（0 个 PlatformView），脏视图合成上游已回退且只对多视图有意义。
+后两个不需要改一行代码；ADPF 已在应用层自己接上（见 二·四十六）。**
+可复跑的证据：`bash tool/android_engine_caps.sh`（升级 Flutter 后重跑一次就知道到货没有）。
+
+### 1. ADPF：上游还没合并，「跟进」无从谈起
+
+- 本机 3.47.9（engine `89c39edfdf`，2026-10-27 构建）的 `libflutter.so` 里
+  `APerformanceHint` / `PerformanceHint` / `AWorkDuration` / `reportActualWorkDuration` /
+  `createHintSession` 全部命中 **0 处**——没有开关可开。同一份 `.so` 里 `Impeller` 6341、
+  `Vulkan` 3434、`SurfaceControl` 424 处，说明字符串读得到，0 是真的 0（不是文件没读进去）。
+- 再叠一层 ELF 动态符号表的复核（不是字符串搜）：`libandroid.so` 确实在 `NEEDED` 里，
+  482 个未定义符号中 ADPF 相关 **0 个**，从 libandroid 导入的只有 7 个 `ANativeWindow_*`。
+  两条实现路径都被堵死——**静态链接**要出现在 `.dynsym`，**`dlsym` 动态解析**（PR 里写的
+  "dynamically resolve"）要把符号名当字符串存进 `.rodata`；两边都是 0。
+- 上游 PR #192582（`[Android] Implement ADPF hint sessions for API 35+ with AWorkDuration`）
+  **仍未合并**：门限 Android 15+，从 `libandroid.so` 动态解析 `AWorkDuration`，上报
+  **build_ns + raster_ns**、帧起点与总时长，目标时长先按 75% 打折留调度余量。
+
+真要现在自己做，只能走应用层：Dart 侧 `SchedulerBinding.addTimingsCallback` 拿每帧
+`buildDuration` / `rasterDuration`，Kotlin 侧按线程名扫出 `1.ui` / `1.raster` 的 tid，
+再 `PerformanceHintManager.Session.reportActualWorkDuration()` 逐批回报。
+代价是一条 MethodChannel + 线程名探测（不是公开契约）+ 本机没法验证，而且引擎自己做之后
+白写一遍——所以这里一度写的是「不做」。**后来按用户要求做了，见 二·四十六。**
+
+### 2. HCPP：特性是真的，但项目里没有它作用的对象
+
+- Flutter 3.44 起的实验特性，两种开法：`flutter run --enable-hcpp`（只能本地跑），
+  或清单里加 `<meta-data android:name="io.flutter.embedding.android.EnableHcpp" android:value="true" />`
+  （release 走这条，`build apk` 会读 `computeHcppEnabled()`）。
+- 要求 **API 34+ 与 Impeller 的 Vulkan 后端**，不满足自动回退旧策略。
+- 本项目 `grep -rn "AndroidView|PlatformViewLink|UiKitView" lib` = **0**。
+  HCPP 只改 PlatformView 的合成方式，没有 PlatformView 就没有任何变化。
+
+留个 30 秒就能加的位置：哪天真要嵌地图 / WebView，再把那行 meta-data 加进去。提前加没意义。
+
+### 3. 脏视图合成：合过，被回退了，而且只对多视图有意义
+
+- PR #179874 加了 `RenderView.needsCompositeFrame`，让 `drawFrame` 只提交脏 view；
+- 2026-08-18 因 issue #191251（web benchmark 启动超时）被 PR #191252 整体回退；
+- 本机 3.47.9 的 `packages/flutter/lib/src/rendering/binding.dart:691` 仍是全量遍历：
+
+```dart
+for (final RenderView renderView in renderViews) {
+  renderView.compositeFrame();
+}
+```
+
+- 而且它是**多视图**优化。手机上本 App 只有一个 view，有没有这条都一样。
+
+### 4. 顺手盘了一遍「谁在每秒醒来」
+
+「3 秒轮询」是真的；「每秒秒表刷新」也有，但那是页头时钟 `HH:mm:ss`：
+
+| 谁 | 周期 | 能不能省 |
+| --- | --- | --- |
+| 行情轮询 | 3s（失败退避） | 不能，这是产品本身 |
+| 页头时钟 | 1s，且只在格式化结果变了才 `setState` | 不能，秒针就是 1Hz |
+| 时段角标 | 30s | 不能，要跨时段边界翻转 |
+| 报价陈旧翻转 | **一次性**定时器 | 已经是「算好剩余时间挂一次」，不是 periodic（见 `freshness_ticker.dart` 的注释） |
+
+也就是说「从空闲中唤醒」在本项目里只有 1 次/秒，且都由业务决定。ADPF 能改善的是
+**频率爬升的时机**，改不了这个次数——它救不了「本来就不该醒」的场景。
+
+### 未验
+
+真机仍不可用（`adb devices` 从 11:35 起为空），所以这一节**没有任何实测帧数据**，
+全部来自产物符号与源码。要回答「值不值得为性能折腾」，正确的下一步是拿 profile 包跑
+`tool/measure_frames.sh` 看 p90/p99，而不是先接特性。
+
+
+## 二·四十六、自己把 ADPF 接上（已落地，2026-11-07）
+
+引擎没有（二·四十五 的 0 符号证据），上游 PR 还没合并，但**这件事应用层能自己做**：
+`FrameTiming` 里有引擎自己测的 build / raster 耗时，`PerformanceHintManager` 是公开 API。
+
+```text
+FrameTiming(build+raster)
+   → AdpfMonitor（攒 8 帧或 200ms，取平均）
+   → MethodChannel  itick/perf : adpf.report
+   → AdpfSession.kt（扫 /proc/self/task 找 1.ui / 1.raster）
+   → PerformanceHintManager.Session.reportActualWorkDuration()
+```
+
+### 六个必须钉住的点（都是踩过才知道的）
+
+| 决定 | 理由 |
+| --- | --- |
+| **攒批**：8 帧或 200ms 报一次平均值 | 逐帧报 = 120Hz 下每秒 120 次 Binder IPC。ADPF 的消费者是滚动窗口，批内平均值足够 |
+| 目标时长 = 帧预算 × **0.75** | 与引擎侧 PR #192582 一致：留 25% 给 GPU 合成与调度抖动 |
+| 刷新率**每次现读** | 项目会在 60/90/120 档之间投票（`frame_rate.dart`），写死 16.6ms 会让 120Hz 下的目标松一倍 |
+| 会话类型是 `PerformanceHintManager.**Session**` | 不是文档里常见的 `PerformanceHintSession`。第一次照文档写，Kotlin 直接编译失败（`Unresolved reference`），以 `platforms/android-37.0/android.jar` 的签名为准 |
+| API < 31 时**不加载** [Impl] | 所有 API-31 引用关在私有嵌套类里，外层只有一个 `Impl?` 字段；否则旧系统上类加载期就 `NoClassDefFoundError` |
+| 连续 3 次上报失败自动关会话 | 被系统 EPIPE 掉后继续调用只会刷日志 |
+
+### 边界（别当万能药）
+
+- 它只改「CPU 频率爬升的时机」，**不改帧数、不改单帧耗时**。12ms 的帧不会变 8ms。
+- 扫线程靠 `/proc/self/task/*/comm` 里的 `*.ui` / `*.raster`——**这是引擎实现细节**。
+  扫不到就静默跳过：`start` 返回 false，Dart 侧连 timings 回调都不注册，零常驻开销。
+- `AppConfig.enableAdpf = false` 一个开关就能整体关掉，不用改代码。
+
+### 验证到哪一步了
+
+- **Dart 侧 9 条用例**：目标时长（120Hz / 60Hz / 取不到按 60）、攒 8 帧报平均值（不是总和）、
+  低帧率按 200ms 兜底、平台说建不起来就彻底不干活、通道不存在不抛、
+  连续 3 次失败自动关且不再报、`stop` 后可重启、退后台关会话回前台重开。
+- **打包校验新增一条**：dex 里必须能找到 `PerformanceHintManager`。被 R8 剥掉的话
+  Dart 侧只会拿到 `MissingPluginException` 然后**静默降级**——不崩、不报错、看起来正常，
+  正是最难发现的一类回退。
+- 构建通过，APK `8 316 188` 字节（比接入前 +4 748 B）。
+- **真机已验（2026-11-07 19:34 补记）**：设备在 19:20 左右恢复连接，装上新包后
+  `adb logcat -G 8M`（默认 256KB 环形缓冲会被 OPPO 的启动噪声冲掉，第一次抓空了）
+  + `am force-stop` + `am start`，冷启动实测三行：
+
+  ```text
+  I app.supermarket: refresh: 当前=90.0Hz (1256x2760, modeId=2); 全部档位=…
+  I app.supermarket: refresh: 投票 60Hz fixed=true -> 60.0Hz (modeId=3)
+  I app.supermarket: adpf: 会话已建立 tids=31611 target=8333µs
+  ```
+
+  说明扫 `/proc/self/task` 找 `*.ui` / `*.raster` 线程、`createHintSession` 都成功了。
+  `8333µs` = 建会话瞬间 90Hz 帧预算（11.11ms）× 0.75；随后 MainActivity 投票到
+  60Hz，Dart 每次 `adpf.report` 都用 `targetWorkNanos()` 重算、Kotlin 在变化时调
+  `updateTargetWorkDuration` → 12 500µs，**不是错配**。
+  仍缺的一步：Perfetto 确认 hint session 真的在调频（这次只验到「会话建起来」）。
+
+
+## 二·四十七、Baseline Profile 与 App Startup：不是「没用过」，是「早就有但没覆盖到自己」（2026-11-07）
+
+**先纠正两个前提**：这个 APK 里**早就有** `assets/dexopt/baseline.prof`（AGP 会把依赖 AAR
+自带的 profile 自动合并，实测 926 B），`androidx.startup.InitializationProvider` 也**已经在包里**。
+真正缺的是「Flutter 自己那几十个 Java 方法没有被任何 profile 覆盖」。
+
+### 现状盘点（都是解包数出来的）
+
+| 项 | 事实 |
+| --- | --- |
+| 包里的 profile | `assets/dexopt/baseline.prof` **926 B** + `baseline.profm` 162 B，全部来自依赖 AAR |
+| Flutter 胶水层 | dex 里 `io/flutter/**` **449 个类、3057 个方法**；Flutter 的 embedding 是本地 jar，不带 profile |
+| ContentProvider | **1 个**（`androidx.startup.InitializationProvider`，由 profileinstaller 带进来） |
+| 冷启动基线 | 403ms 中位（README 顶部有同源 A/B 的测量纪律） |
+
+所以「Baseline Profile 和纯 Flutter 应用关系不大」只说对了一半：**主路径确实在 native/Dart**，
+但 `FlutterActivity.onCreate` → `FlutterActivityAndFragmentDelegate.onAttach` →
+`FlutterLoader.startInitialization` → `FlutterJNI.loadLibrary/attachToNative` 这一串
+全是 Java，第一次启动时只能解释执行。
+
+### 补了什么
+
+新增 `android/app/src/main/baseline-prof.txt`（25 条），只圈冷启动必经方法：
+`FlutterActivity` / `FlutterActivityAndFragmentDelegate` / `FlutterLoader` / `FlutterJNI` /
+`FlutterEngine` / `DartExecutor` + 自己的 `MainActivity.onCreate` / `configureFlutterEngine`。
+签名不是猜的，是从 `classes.dex` 的 `method_id` 表里按类名+方法名取出来的精确原型。
+
+构建链的实测结果：
+
+```text
+src/main/baseline-prof.txt   25 条
+merged_art_profile           771 行（依赖 746 + 自己 25）
+combined_art_profile         494 行（R8 按 mapping 改写，去掉被内联/删除的）
+assets/dexopt/baseline.prof  926 B → 1040 B
+```
+
+`verify_apk.py` 加了两条：包里必须有 `baseline.prof`；自己写的规则**必须活过 R8**
+（查 `combined_art_profile/.../baseline-prof.txt` 里还有没有 `FlutterActivity`）。
+Flutter 升级后签名变了的话，第二条会先红——不会静默变成「profile 里一条自己的规则都没有」。
+
+### 但收益必须先测，别当成 20–30%
+
+- 网上「冷启动提升 20–30%」「1840→1210ms」都是**纯 Java/Android 应用**的数字。本项目的
+  403ms 里，大头是 `libflutter.so` 加载、Dart isolate 启动、着色器预热，Java 那几十个方法
+  的占比没人量过——**我也没有量到**（adb 从 11:35 起为空）。
+- **侧载 APK 的 profile 是否在安装时就被编译**，取决于设备的 `pm.dexopt.install` 策略。
+  要确定性验证得走 `adb shell cmd package compile -m speed-profile -f app.supermarket`
+  强制编译一次，再用 `tool/measure_frames.sh` 同源 A/B（A→B→A→B）。
+- 正规生成方式仍是 `androidx.baselineprofile` 插件 + Macrobenchmark 采集冷启动，
+  **需要连设备**，而且要多一个 `com.android.test` 模块。这次没做，手写 profile 是它的
+  低成本近似：覆盖已知路径，但不保证覆盖真实热点。
+
+### App Startup：现在没有可收敛的东西
+
+包里只有 **1 个** ContentProvider（`androidx.startup.InitializationProvider`），而 App Startup
+的作用是把**多个** Initializer 合并进这一个 provider。当前是「1 → 1」，没有任何收益。
+
+它真正变成问题的时机是：引入统计 / 推送 / 广告 SDK 之后，每家各带一个 provider，
+`Application.onCreate` 之前要串行跑 N 次。那时再评估，判据是
+`aapt2 dump xmltree app-release.apk --file AndroidManifest.xml | grep -c "E: provider"` 从 1 变成 >1。
+
+
+## 二·四十八、AGP 9.2 / Gradle 9.4.1：升了，但「R8 协程加速」对这里仍是 0（2026-11-07）
+
+**官方那条优化是真的**：AGP 9.2.0 起 R8 把 `Atomic*FieldUpdater` 换成 `Unsafe`，
+`kotlinx.atomicfu` 受益，协程启动/取消快至 2×。**但本项目没有协程可优化**——
+这次升级的价值是「工具链换代」，不是「免费加速」。
+
+### 升了什么
+
+| 项 | 之前 | 现在 | 说明 |
+| --- | --- | --- | --- |
+| AGP | 9.1.0 | **9.2.0** | 要求 Gradle ≥ 9.4.1、JDK ≥ 17 |
+| Gradle | 9.3.1 | **9.4.1** | 走腾讯镜像，wrapper 已切 |
+| KGP | 2.4.0 | 2.4.0（不跟） | 2.5 只有 `2.5.0-Beta2`，且 Flutter 只认到 2.4.0 |
+| JDK | 21 | 21 | AGP 9.2 要求 ≥ 17 |
+
+### 实测（同一份源码，只换工具链）
+
+| 指标 | AGP 9.1 | AGP 9.2 | Δ |
+| --- | --- | --- | --- |
+| APK | `8 316 316` | `8 318 768` | **+2 452 B** |
+| `classes.dex` | `980 900` | `987 524` | **+6 624 B** |
+| `baseline.prof` | `1 040` | `949` | −91 B（R8 重新改写，自写规则仍在） |
+| 构建 | 通过 | 通过、**零警告** | analyze 0 / 469 测试全绿 / `verify_apk.py` 全绿 |
+
+注意 dex **反而大了 6.6 KB**——这就是「没吃到那条优化」的物证：能变的只是 R8 的其它改动。
+
+### 为什么这条优化用不上（数据）
+
+- Kotlin 源码：`suspend fun` / `CoroutineScope` / `runBlocking` **0 处**；
+- dex：`kotlinx/*` 类 **0 个**（总类 1092，`kotlin/*` 仅 7 个）；
+- 于是 `kotlinx.atomicfu` 根本不在包里，R8 没有可替换的 `Atomic*FieldUpdater` 调用点。
+
+原生侧本来就是回调式：`MainActivity` 用 `MethodChannel`，`AdpfSession` 是同步代码。
+
+### 保留的观察点
+
+- Flutter 3.47.9 的 `gradle_utils.dart`：`maxKnownAgpVersion = '9.2'`（**认识**），
+  `maxKnownAgpVersionWithFullKotlinSupport = '9.1.0'`（对 Kotlin 的**全量支持**只到 9.1）。
+  升到 9.2 后构建没有警告，但也不等于「官方全量支持」。
+- AGP 9.2 收紧了 `-keepattributes`：含通配符的模式不再匹配 `RuntimeInvisible*` 注解。
+  本次构建与打包校验都过了；以后若出现「反射读注解拿不到」的怪问题，先怀疑这条。
+- 真开始写协程、且它落在热路径（每帧启停 / 滑动中反复 launch-cancel）时再重新量：
+  解包确认 dex 里出现 `kotlinx/coroutines/**`，用 `tool/measure_frames.sh` 同源 A/B 看 p90。
+
+> **后续（同日 19:41）**：AGP / Gradle / KGP 又升了一档到 9.5.1 / 9.6.0 / 2.4.21，
+> 见 **二·五十二**。本节表格与「升了什么」记录的是 9.1 → 9.2 那次的历史数字，
+> 不是当前配置；下面这三条观察点里，`maxKnownAgpVersion` 的判断在 二·五十二 有复核。
+
+
+## 二·四十九、R8 Full Mode 与「首帧→首报价」的 Baseline Profile：一个早就开了，一个不归它管（2026-11-07）
+
+### 1. Full Mode 不用「切」，它已经是默认
+
+「AGP 8+ 默认仍是兼容模式」这句对不上：R8 Full Mode 从 **AGP 8.0 起就是默认开启**，
+`android.enableR8.fullMode` 这个开关今天的作用是**关掉它**。别凭这一点去改配置。
+
+不信就跑一次 A/B（同一份源码，只在 `android/gradle.properties` 里加一行 `=false` 重建）：
+
+| 配置 | `classes.dex` | APK |
+| --- | --- | --- |
+| 默认（Full Mode **开**） | **987 524 B** | **8 318 768 B** |
+| `android.enableR8.fullMode=false` | 1 063 772 B | 8 346 164 B |
+| Full Mode 已经省下的 | **−76 248 B（−7.2%）** | −27 396 B |
+
+也就是说，这 74.5 KB 早就吃到了，不需要任何动作。Grab 那套「先切 optimize、再切 Full Mode、
+最后精简 Keep」里，前两步在本项目相当于已完成；第三步（Configuration Analyzer 精简 Keep）
+的天花板由 dex 规模决定——964 KB 的 dex，能砍的空间和 1000 万行的库不是一个量级。
+
+### 2. Baseline Profile 覆盖不了「首帧→首报价」那 68ms
+
+这条是**类别错误**，两个原因：
+
+1. **Baseline Profile 只作用于 dex**（Java/Kotlin 字节码）。Dart 代码在 release 包里由
+   Flutter 自己的 AOT 编译器直接编成 `libapp.so` 里的机器码——Android 上根本没有 Dart JIT，
+   profile 没有可编译的对象。
+2. 那 68ms（`.881→.949`）的大头是**第一次 HTTP 往返**：首帧渲染完才发首轮行情请求，等新浪回包。
+   这段是网络 I/O，不是代码执行速度。
+
+真要动这段，只有三条路，而且都不该做：缓存上次的报价当首屏（实测空列表窗口只有 0.07s，
+不值得）、缩小首轮请求（已经只发订阅的那几只）、把首帧再提前（已经做了）。
+
+能被 profile 覆盖的 Java 部分（`FlutterActivity` / `FlutterEngine` / `FlutterLoader` / `FlutterJNI`
+/ `DartExecutor`）已经在 **二·四十七** 补了 25 条，那才是 profile 的正确用法。
+
+### 3. 结论
+
+- Full Mode：**已经开着**，本次只做了一次 A/B 把它的价值量化出来（−74.5 KB dex），配置未改。
+- Baseline Profile：Java 胶水层已覆盖；「首帧→首报价」不归它管。
+- Grab 的 32% / 35% / 30% 不追——那是 1000 万行、十年历史、大量反射依赖的库跑出来的；
+  本项目的瓶颈不在这三层（见 二·三十七、二·四十五 的实测）。
+
+### 4. 复核补记（19:27）：真跑了 R8 Configuration Analyzer
+
+二·四十九 当时只说「第三步的天花板由 dex 规模决定」，没给分数。用官方工具补上：
+AGP 9.2 没有 `analyzeReleaseR8Config` 任务（9.3+ 才有），按官方兼容做法在
+`settings.gradle.kts` 临时挂 `com.android.tools:r8:9.4.14`、跑
+`minifyReleaseWithR8 -Dcom.android.tools.r8.dumpkeepradiushtmltodirectory=…`，
+解出内嵌 protobuf 报告后**还原配置并重新打包**：
+（**19:41 补记**：升到 AGP 9.5.1 后这一步不用再临时改配置了，见 二·五十二。）
+
+| 指标 | 本项目 | 参照（Grab 迁完 Full Mode） |
+| --- | --- | --- |
+| Optimization | **58.2%** | 72% |
+| Shrinking | **58.9%** | 73% |
+| Obfuscation | **59.6%** | 79.6% |
+| 全局禁用项 | **0 条**（无 `-dontoptimize/-dontshrink/-dontobfuscate`） | — |
+| 规则总数 / live 项 | 63 条 / 14 352 项（1 962 类 + 3 577 字段 + 8 813 方法） | — |
+
+最阻塞的一条是 `-keep class io.flutter.** { *; }`，单独 keep 住 **5 482 项**
+（占被阻止项的 91%），第二条 `-keep interface io.flutter.**` 423 项，
+第三条 `-keep @androidx.annotation.Keep class * {*;}` 381 项。
+**不收窄**：这是 Flutter 官方模板为 JNI 反向调用写的规则（`FlutterJNI` 的 native
+方法虽有 `@Keep`，但入口不止一个），失败模式是 release 启动即崩；而收益上限
+被真机内存实测压死——Java 堆 2.2MB、dex mmap 0.8MB，占 111MB PSS 不到 1%
+（见 二·五十一 的 Android 17 复核小节）。为 58%→7x% 的分数冒启动闪退风险不划算。
+
+
+## 二·五十、统一原生日志 tag：`super_market` → `app.supermarket`（2026-11-07）
+
+现状表里那句「包名改成 `app.supermarket` 后 tag 没跟着改」修掉了。**不是改一个字符串**：
+清点下来一共 4 处写死的旧 tag + 4 处按旧 tag 抓日志的引用。
+
+| 位置 | 原来 | 现在 |
+| --- | --- | --- |
+| `MainActivity.kt` | 3 处 `Log.i("super_market", ...)`（投票 / 档位 / 固定 mode） | `Log.i(LOG_TAG, ...)` |
+| `AdpfSession.kt` | `private companion object { const val TAG = "super_market" }`（二·四十六 接 ADPF 时照抄了旧 tag） | 删掉，直接引用 `LOG_TAG` |
+| `LogTag.kt` | 无 | **新增**：`const val LOG_TAG = "app.supermarket"`，全原生侧唯一定义点 |
+| `tool/measure_frames.sh` | 2 处 `logcat -d -s super_market` | `logcat -d -s "$PKG"`，复用已有的 `PKG=app.supermarket`——tag 与 applicationId 同名，改包名时天然一起改 |
+| 文档 | 现状表、二·四十六 验法、`docs/ANDROID17-ALIGNMENT-2026-11-07.md` 的验机命令 | 统一为 `-s app.supermarket` |
+
+`test/log_tag_boundary_test.dart`（3 条）把「再漂一次」变成当场变红：从
+`build.gradle.kts` 读 `applicationId` 去比对 `LogTag.kt` 的常量值，扫全部 `.kt`
+确认每个 `Log.*` 的第一个参数都是 `LOG_TAG`、源码里没有旧 tag 字面量，且脚本与
+当前文档不再按旧 tag 过滤。留了先红后绿的证据：改代码前 3 条全红（缺 `LogTag.kt`、
+只有 2 个 kt 文件、脚本仍有旧 tag），改完 3/3 绿。
+
+**没动的那一半**：Dart 的 `debugPrint` / `dart:developer` 走引擎写死的 `flutter` tag，
+`tool/perf_bench.sh`、`tool/measure_frames.sh` 抓 `[perf]` 仍按它过滤。要连这个也统一，
+得把 Dart 日志全搬过 MethodChannel，代价远大于收益。两边一起看只需一条命令：
+
+```bash
+adb logcat -s app.supermarket flutter
+```
+
+真机 logcat 验法（`adb logcat -s app.supermarket` 应出现 `refresh:` 与 `adpf:` 两种行）
+**19:34 已验**：设备恢复后装新包冷启动，两种行都出现在同一个 `app.supermarket` tag 下
+（完整日志见 二·四十六）。注意先把 `logcat -G 8M` 放大缓冲，OPPO 默认的 256KB
+会被启动噪声冲掉——第一次抓以为是「没日志」，其实是日志被挤出环形缓冲。
+
+
+## 二·五十一、技术升级候选盘点：三条路线，以及「明确不做」的那一半（2026-11-07）
+
+**起点是个反直觉的结论：工具链层已经打满。** 再列「升到某某新版本」或「再压包体」，
+基本是在重复已证无收益的功课——Flutter 3.47.9 / Dart 3.13.7、AGP 9.5.1 / Gradle 9.6.0 /
+KGP 2.4.21（二·五十二 又升了一档）、R8 Full Mode（默认开）、Baseline Profile（手写 25 条）、自建 ADPF、
+`material_ui` 1.10、16KB 页 / edge-to-edge / targetSdk 37、8 条 3.13 新 lint、
+单一构建入口、476 条用例，见 二·四十二～二·五十 与 ROADMAP「明确不做」。
+
+筛子只有三道：**个人自用单机**（排除发版流水线 / 崩溃上报 / i18n / 埋点）、
+**工具链已顶格**（排除追新框架与包体）、**真机离线**（依赖真机的先挂起）。
+筛完剩下的价值集中在「会随时间自己烂掉」和「平台对齐」两类。
+
+### 路线 A · 防守型（推荐：纯 Dart、零真机依赖）
+
+- **A1 交易日历续期 + 表外年份优雅降级**。`lib/config/market_holidays.dart:151`
+  的 `lastCoveredYear = 2027`，现状缺口第 4 条已写明：2028 起退回「工作日 + 时段」，
+  节假日重新显示「交易中」。现在只有一条测试跨年变红，但**装到手机上的旧版本
+  不会红，只会静默说谎**。两步：补 2028–2030 数据并配 `tool/` 生成脚本；更关键的是
+  表外年份给显式文案（「日历未更新」或保守判休市），把「测试红」变成「用户看得见的诚实」。
+- **A2 美股 K 线补第二源**。现状缺口第 5 条，最后一个已知单点。报价已有
+  `PollingQuoteFeed.regionBackup` 补位腿（二·四十），K 线仍只有腾讯。复用同一模式 +
+  `tool/us_live_probe_test.dart` 网络探针验证即可，不需要真机。
+- **A3 版本一致性 / 升级 SOP**。ROADMAP §1.2 未完成项。版本散在 `pubspec.yaml:4`
+  （`1.0.7+35`）、`ci.yml:34`（3.47.9）、`settings.gradle.kts`（AGP）、
+  `gradle-wrapper.properties`（Gradle）、本页表格、`dependency_pin_test.dart` 六处。
+  一个 `tool/check_versions.py` + 守门测试，把「升 Flutter 漏改 CI」变成当场红；
+  顺带 `bump_version.sh` 一次改 pubspec + README。
+
+### 路线 B · 平台对齐（顺手，收益分散）
+
+- **Predictive back**：`AndroidManifest.xml` 无 `enableOnBackInvokedCallback`、Dart 无
+  `PopScope`，全库只有 `watchlist_sheet.dart:397` 一处 pop。targetSdk 37 下几乎零成本。
+- **Android 12+ SplashScreen API**：`res/values/styles.xml` 仍是 `windowBackground` +
+  `launch_background.xml`，无 `values-v31` / core-splashscreen。要加 androidx 依赖，而纯
+  Flutter 自己管首帧，收益主要是启动观感一致性——**与「不动包体积」纪律有张力，可选**。
+- **sealed `FeedStatus`**（ROADMAP B1）：Dart 3 sealed + 模式匹配收敛「多个 bool 拼状态」，
+  是语言特性不是新依赖；动手前先读 `quote_list_page.dart` 确认是否真存在非法组合。
+
+### 路线 C · 验证能力（前置条件：真机恢复）
+
+- **Macrobenchmark 正规采集**：二·四十七 手写 25 条规则是近似，**收益没测过**；
+  这是把开放问题变成结论的唯一办法。
+- **`integration_test/` 目前为零**：golden 在 `flutter_tester` 下对玻璃光学逐像素零影响
+  （现状缺口第 1 条），只有真机截图 A/B 能验。
+- 覆盖率采集可做，但**别加阈值门禁**：476 条用例已经很密，数字不是目标。
+- **19:20 真机恢复**（`3B15AB01H4V00000`），已装新包并补上 ADPF / 日志 tag /
+  内存基线三项实测（二·四十六、二·五十、二·五十一 的 Android 17 小节）。
+  Macrobenchmark 与 `integration_test` 仍未做——**前置条件已解除，只是还没排上**。
+
+### 补充候选：DNS 缓存 / 预解析（核实后归入「不做」）
+
+有人提「可加 DNS 缓存或预解析，减少每轮握手；收益小，属微优化」。核实下来
+比「收益小」更精确：**常规轮询路径根本没有握手可省**。
+
+- 二·十三 已记过这笔账：第一版每次请求 `HttpClient()` + `close(force: true)`，
+  56 个请求 = 56 次 DNS + TCP + TLS 握手、26.7s；共享连接池后 6.5s，
+  「原来每 3 秒轮询也要付一次握手成本」顺带消失。
+  `lib/services/rest_client.dart:160-167` 的 `idleTimeout = 15s` 远大于
+  `AppConfig.pollInterval = 3s`（`lib/config/app_config.dart:129`），连接一直是热的。
+- 2026-11-07 用同一套配置在开发机复测（`hq.sinajs.cn`，每 3s 一次）：三次请求
+  的 `connectionInfo.localPort` 全是 **61605**（同一条 TCP/TLS 连接），
+  耗时 **205 / 30 / 29ms**；`curl --next` 同进程两次也只出现 `Connection #0`
+  且 `left intact`，主源确实支持 keep-alive。DNS 也不重复查：
+  `InternetAddress.lookup` 首次 **89ms**、第二次 **1ms**（系统 resolver 已缓存）。
+- 真正会重建连接只有四种情形：切后台超过 15s 回前台、请求异常触发
+  `_sharedClientDirty`、主/备/补位换 host 的首次、网络切换。这些路径上解析
+  命中缓存约 1ms，成本大头是 TCP + TLS 握手，不是 DNS。
+
+要自己缓存 DNS 只能接管 `HttpClient.connectionFactory`（SDK 有这个 setter，见
+`dart-sdk/lib/io/socket.dart:598`），等于绕过系统解析：CDN 调度、IPv6/IPv4 选择、
+IP 变更后的自愈、证书 SNI 全得自己兜。预解析（`InternetAddress.lookup` 提前跑）
+唯一理论收益是把冷启动首次 lookup（开发机 89ms，**非真机数据**）挪到首帧渲染
+期间并行；但多 host 预热可能与首帧争资源，二·四十九 又已确认「首帧→首报价
+68ms」大头是 HTTP 往返。**未做真机 A/B 前不声称有收益**，默认不做；若哪天真要验，
+按同源 A/B + 交叉轮测 + 每轮静置 30s 的口径，别拿单轮 `am start -W` 的随机数当结论。
+
+### 补充候选：端侧 AI（2026-11-07 复核：技术已成熟，本项目仍不做）
+
+有人提：`flutter_litert_lm`（Google LiteRT-LM 的 Flutter 插件）已能跑
+Gemma / Qwen / Phi，CPU + GPU(OpenCL) + NPU 三后端，推理免网络 / 免 Key / 免计费，
+最低 API 24 与本项目 minSdk 一致；两个自然切入点＝**详情弹层的行情摘要本地生成**
+（把今开/最高/最低/成交量/涨跌幅压成一句话）、**端侧嵌入做「白酒龙头」这类概念搜索**，
+不依赖东方财富远端建议。
+
+**生态事实基本属实，两处要修正**（2026-11-07 核 [pub.dev 包页](https://pub.dev/packages/flutter_litert_lm)、
+[LiteRT-LM 官方 overview](https://ai.google.dev/edge/litert-lm/overview)、
+[官方仓库 README](https://github.com/google-ai-edge/LiteRT-LM)）：
+
+| 说法 | 核实 |
+| --- | --- |
+| API 24 / 三后端 / 多模型 | ✅ 官方 LiteRT 2.3.0 把 Android minSdk 抬到 24。但 GPU 需真机 `libOpenCL.so`（模拟器无），NPU 需厂商运行时且**按 SoC 型号分发专用 `.litertlm`**（MT6989/6991、SM8550/8650/8750、Tensor G5/G6），官方 NPU 指南仍是 Bazel 编译 + `adb push` 的开发流程 |
+| 「已成熟到可直接集成」 | ⚠️ **运行时**确实 production-ready（Chrome / Chromebook Plus / Pixel Watch 在用，Kotlin / C++ 标 Stable），但官方仓库把 **Flutter 标为 🚀 Community**，文档指向 `flutter_gemma`（现 `flutter_edge_ai` 2.x 模块化）；用户提的 `flutter_litert_lm` 是另一个 **0.3.0 / 0.x** 社区包 |
+| 无需网络 / 无 Key / 无计费 | ✅ 仅指**推理阶段**。模型文件要从 HuggingFace `litert-community` 拉，Gemma 系 gated 需 token 并接受许可，国内直连不稳（通常走镜像） |
+
+**四条硬约束让两个切入点都倒挂**：
+
+1. **包体**：本项目 7.93MB，ROADMAP 明确「不动包体积」。官方口径最小聊天模型
+   Qwen3 0.6B = **586 MB**、Gemma3-1B = 1005 MB、Gemma4-E2B = 2.46 GB；最小嵌入模型
+   EmbeddingGemma 2 Text(270M) = **165 MB**。项目只打 arm64 APK 侧载，用不了
+   Play AI Pack（**仅支持 AAB**，且要进 Play）。
+2. **内存**：官方给 Gemma4-E2B 在 Android CPU 峰值 **1733 MB**；pub.dev 故障排查
+   明写「加载大模型后 App 被静默杀掉 = OOM」。本项目真机常态可用内存
+   **~300MB**（性能测量纪律里的实测口径），连最小的 165MB 模型 + 运行时都吃不下。
+3. **分发与延迟**：真机是 OPPO Find X9 / 天玑 9500，NPU 模型按 MT69xx 型号分发，
+   与「一个 arm64 APK 装一台机」矛盾；`Engine.initialize()` 实战可达 10s，
+   官方 CPU TTFT 1.8s、decode 47 tok/s。详情弹层现在是打开即见八项指标。
+4. **产品层更致命**：五个数字压成一句自然语言是**确定性字符串模板**能做的事
+   （零依赖、零延迟、零幻觉）；「数据不出设备」不是端侧 LLM 的卖点——数据本来就在
+   设备上，模板同样不出设备，模型反而可能编造涨跌幅。语义搜索同理：
+   `StockConfig`（`lib/config/app_config.dart:9-22`）只有 code / name 等字段，
+   5577 条目录里**没有行业或概念信息可嵌入**；「白酒龙头 → 茅台」用一张几十 KB 的
+   「概念 → 成分股」映射表即可，可测可维护。现有远端建议接口 170–380ms / 131 字节
+   （`lib/services/source/symbol_search.dart:12`），且本地目录命中时不等远端。
+   EmbeddingGemma 2 官方**未公布中文检索分数**，接入前还得自己拿语料测一轮。
+
+**口径更新**：ROADMAP「明确不做」里「端侧 LLM 成熟度不够进生产」这条**理由过期了**
+（2026-11 运行时已 production-ready，Flutter 也有 1.x / 2.x 社区包）。**结论不变**，
+理由改成「技术成熟，但成本/收益倒挂，且与包体 / 内存 / 离线分发 / 核心体验四条硬约束
+冲突」。若哪天真要做这两个体验，正确顺序是：确定性模板摘要（纯 Dart + 单测）→
+概念词典（本地表 + 单测）→ 仍然不够再谈模型；**别一上来引 165MB 依赖**。
+
+### 补充候选：主构造函数复核（2026-11-07 晚，部分采纳）
+
+有人重提 二·四十二：Primary Constructors「没有新语义、十几行压到一两行」，
+配合 3.13 `dart format` 的样式细化「低成本现代化整个模型层」，
+「414 条用例兜底，回归风险很低」。逐条核对：
+
+| 提法 | 核实结果 |
+| --- | --- |
+| 没有新语义 | ✅ 属实。[feature spec](https://github.com/dart-lang/language/blob/main/accepted/3.13/primary-constructors/feature-specification.md) 原文 "It does not provide any new semantics at all"；语义可推导成「无主构造的等价声明」 |
+| 414 条用例 | ❌ 是历史时点数字（README:2288 / 3473 记过 204→420 的演进）。当时 **472 通过**（CI 465），加 R8 守门后现为 476 / 469 |
+| 十几行 → 一两行 | ⚠️ 只对**无文档的小 DTO** 成立。这四个类共 601 行：官方自动修复只省 **12 行（-2%）**且带 31 条 lint info；手工 declaring parameters 的上限约 **41 行**（每类 = 字段数 + 3，已由 `kline.dart` 试点验证），占 `lib/` 13.2k 行的 **0.3%** |
+| 配合 3.13 formatter 细化 | ❌ 前提不成立：全库 **0 个 extension type、1 个 mixin**（`lib/utils/lifecycle_pause.dart:15`），「表示子句尾逗号 / mixin 周围空行」在这里几乎没有作用对象。而 `dart format --output=none --show all lib test` 在**未改任何代码**时就报 115 文件里 **65 个会变**（tall style 重排），是与模型层无关的改动面 |
+| 回归风险低 | ✅ 属实，476 条用例确实兜得住语义。但测试挡不住另外两类成本：自动修复带来的 **31 条 lint info**（破 0-issue 门禁）、以及 `Quote` 迁完的 **48 行参数墙** |
+
+**采纳范围**：`lib/models/kline.dart` 三个类已迁（109 → 90 行，详见 二·四十二 复核补记）；
+`Quote` / `StockConfig` 保持传统写法。旧结论「不批量迁移」不变，
+但理由已从「文档会丢 + 不能全迁 + 参数墙」收敛为**只剩可读性**。
+这条也说明：本章的「明确不做」不是永久判决，理由过期就该重开。
+
+### 补充候选：Android 17 内存限制 / R8 / Baseline Profile（2026-11-07 晚复核）
+
+有人提：Android 17 按设备总 RAM 引入 per-app 内存上限，超限直接杀进程、无堆栈
+（`ApplicationExitInfo` 里 `REASON_OTHER` + 描述含 `MemoryLimiter:AnonSwap`）；
+建议确认 Full Mode 与 `proguard-android-optimize.txt`、用 R8 Configuration Analyzer
+收窄 keep 规则，并引 Monzo（ANR −35% / 冷启动 +30% / 体积 −9%）与「Baseline
+Profiles + Full Mode 冷启动 30–50%」作为收益预期。
+
+**平台事实属实，且本项目早有防备**：Android 17 行为变更文档与 2026-06 官方博客
+都写明这套限制；`lib/utils/exit_diagnostics.dart` 的 `classifyExit()` 已经把
+`REASON_OTHER` + 描述含 `memorylimiter` 判成 `ExitCause.memoryLimiter`，
+`main.dart` 在首帧之后读一次上次退出原因——**无堆栈这类死亡在 App 里是可见的**。
+本机 `adb shell am memory-limiter status` 实测 **disabled**（12GB RAM / Android 17 /
+API 37），与官方「先从 Pixel 开始、之后一年逐步铺到各 OEM」一致，所以现在无法
+在本机复现；真要模拟可用 `am memory-limiter manual <MB>`。
+
+**要确认的三件配置，全部早已满足**（不是本次改的）：
+
+| 官方建议 | 本项目 |
+| --- | --- |
+| `isMinifyEnabled = true` + `isShrinkResources = true` | ✅ `app/build.gradle.kts:88-91` |
+| 用 `proguard-android-optimize.txt` 取代 legacy `proguard-android.txt` | ✅ `app/build.gradle.kts:92-95`，合并配置第 1 行标注来自 AGP 9.5.1 抽取的 optimize 文件（升级前是 9.2.0） |
+| 移除 `android.enableR8.fullMode = false` | ✅ `gradle.properties` 里根本没有这个属性；Full Mode 自 AGP 8 起默认开，二·四十九 有 A/B 数据 |
+
+**Analyzer 真跑了**（方法、分数、规则归因见 二·四十九 复核补记）：
+优化 **58.2%** / 精简 **58.9%** / 混淆 **59.6%**，全局禁用项 **0 条**。
+最阻塞的是官方 Flutter 模板的 `-keep class io.flutter.** { *; }`（5 482 项）。
+Monzo 那 35% 的起点是「还在用 `proguard-android.txt`（内含 `-dontoptimize`）」，
+本项目从未有过这个起点；Grab 的 35% 是 1000 万行、17 个 dex、分三阶段
+（optimize → Full Mode → keep 规则治理）累计出来的，其中 **R8 12% +
+Baseline Profile 15% = 27%**，并不是「组合就 30–50%」。这个 30–50% 区间
+在 Google 官方材料里查不到，只见于第三方博客泛指的「30–40%」。
+
+**「针对首帧→首报价生成 Baseline Profile 是确定性收益」是类别错误**，二·四十九
+已论证：profile 只编 dex，Dart release 已是 `libapp.so` 里的 AOT 机器码，
+那 68ms 是首次 HTTP 往返。Monzo 的 profile 收益落在**滚动渲染**
+（P90 +71% / P95 +87%），靠 Macrobenchmark 跑真实 UI 旅程生成；本项目
+Java 胶水层已由 `src/main/baseline-prof.txt` 的 25 条规则覆盖，「收益没测过」。
+
+**真机内存基线**（19:34，当前构建，冷启动后静置）：
+`TOTAL PSS 101 277 KB`（≈99MB）/ `RSS 208 396 KB` / `SwapPss 254 KB`；
+其中 **Java Heap 2 132 KB、Native Heap 38 540 KB、Code 37 836 KB、Graphics 0**。
+也就是说常驻大头是 Flutter 引擎的 native/.so 与字体，不是 Java 字节码——
+把 58% 的优化分数刷到 70% 也动不了这 99MB 的 1%，而液态玻璃的纹理/图层
+属于 GPU/图形内存，R8 根本不碰。**因此不做 keep 规则收窄**（收益 <1%，
+失败模式是 release 启动即崩），只把三条配置固化成
+`test/r8_config_boundary_test.dart` 的 4 条守门断言防回退。
+
+### 补充候选：cronet_http / HTTP/3（2026-11-07 晚，端点探针否定）
+
+提法：`cronet_http`（dart.dev 官方 Android 的 `package:http` 后端，1.10.1）用 Cronet
+换掉 `dart:io`，带来 QUIC/HTTP3 + 连接池 + DNS 缓存 + 0-RTT；`RestClient` 是抽象层、
+替换成本低；若新浪/腾讯支持 h3，3s 轮询的握手延迟可显著下降。
+**按提法自己的前置条件，先做端点探针。**
+
+`tool/probe_http3.sh`（可复跑，手动执行、不进 CI）走真实业务路径，取响应头找
+`Alt-Svc: h3`，再查 DNS HTTPS RR（TYPE65）的 `alpn`；另用 openssl 单独测 ALPN/h2。
+本机 curl 是 Windows Schannel 构建、没有 `--http3`，只能靠服务端宣告判断，
+所以脚本拿 `cloudflare.com` 做对照**自证探针有效**（探不到就 `exit 2`，不产结论）。
+
+| 端点 | Alt-Svc(h3) | HTTPS RR(h3) | ALPN | 判定 |
+| --- | --- | --- | --- | --- |
+| `hq.sinajs.cn`（主源） | — | — | 不协商 | HTTP/1.1 only |
+| `qt.gtimg.cn`（腾讯备用） | — | — | **h2** | 只支持 h2 |
+| `push2.eastmoney.com`（美股补位） | — | — | 不协商 | HTTP/1.1 only |
+| `searchapi.eastmoney.com`（搜索） | — | — | 不协商 | HTTP/1.1 only |
+| `quotes.sina.cn`（走势） | — | — | **h2** | 只支持 h2 |
+| 对照 `cloudflare.com` | `h3=":443"` | `alpn="h3,h2"` | h2 | 探针有效 |
+
+五个源全部 HTTP/1.1、**零个**宣告 h3，连 TYPE65 记录都没有（新浪 / 东财只有
+CNAME，腾讯无应答）。ALPN 列是独立探测的服务端能力，HTTP 列才是 curl 实际拿到的版本。
+
+**三重前提都不成立**：
+
+1. **端点不支持 h3** → Cronet 也只会回落 TCP。`CronetEngine.build` 甚至没有
+   `enableHttp3`，只有 `enableQuic` / `quicHints` / DNS 系列开关，仍要服务端配合。
+2. **常规轮询没有握手可省**：上一节 DNS 实测同一条 TCP/TLS 连接（`localPort`
+   恒为 61605、205/30/29ms），`idleTimeout=15s` > 3s 间隔；系统 resolver 已缓存。
+   QUIC 的 0-RTT 只在**新建连接**时才有意义，而这条路径根本不新建连接。
+3. **「替换成本低」只对了一半**：`HttpGetJson` / `HttpGetBytes` 两个 typedef 确实
+   把上层 8 个 `lib/` 文件、6 处测试注入隔离了，**这些不用改**；要重写的是
+   `rest_client.dart` 的两个默认实现 + 共享池与 `resetSharedHttpClient` 钩子，
+   还得新增 `http` + `cronet_http` 两个依赖，把 `StreamedResponse` 接回
+   512KB 字节截断 / GBK 原始字节 / 超时归因。`rest_client.dart:240-241` 本来就有
+   显式决策「不引入 `http` 包」，第 98-103 行还写过 Cronet 属于平台栈、
+   不走 `network_security_config` 的原因。
+
+**成本**：默认走 GMS Cronet（`play-services-cronet` 18.1.1）；本机 PLJ110 有
+`com.google.android.gms`，但国行 ROM 上 GMS 常被禁。改用 embedded 版要打
+`org.chromium.net:cronet-embedded`（最新 AAR **13.7 MB**、四架构），对 7.93MB 的
+APK 是量级变化，与「不动包体积」纪律冲突。
+
+**唯一站得住的理论增益不是 h3、是 h2**：`dart:io.HttpClient` 只说 HTTP/1.1，
+而腾讯备用源和走势源能协商 h2，目录抓取 56 请求 × 6 并发理论上能吃多路复用。
+但那是冷启动低频路径（连接池已压到 6.5s），主源与东财都不支持 h2，
+不值得为此换掉整个传输栈。
+
+**结论：不做**。探针留作回归：将来换源或 CDN 升级 h3，重跑
+`bash tool/probe_http3.sh`；若主源出现 `Alt-Svc: h3` 且真机弱网同源 A/B 有收益，
+再按「只换 `defaultHttpGet` 一个函数、`defaultHttpGetBytes` 仍走 `dart:io`」
+做最小双栈 spike，别一上来全量迁移。
+
+### 补充候选：Brotli 压缩（2026-11-07 晚，端点探针否定）
+
+提法：`dart:io` 默认只支持 gzip，Brotli 要手动加 `Accept-Encoding: br`；
+行情 / 目录响应若支持 br，体积「再降 15–20%」。**按提法自己的前置条件，先做探针。**
+
+先把客户端侧事实钉死（本机 Flutter 3.47.9 / `dart-sdk/lib/_http/`）：
+
+| 位置 | 事实 |
+| --- | --- |
+| `http_impl.dart:2311` | 每个请求默认 `headers..add(acceptEncodingHeader, "gzip")` |
+| `http_impl.dart:615` | `_getCompressionState` **只认** `content-encoding == "gzip"`，其余一律 `notCompressed` |
+| `http_impl.dart:720` | 响应流上只挂 `gzip.decoder` |
+| `http.dart:1329` | 原文：`Automatic un-compression is only performed if the Content-Encoding header value is gzip` |
+
+也就是说 **gzip 不是「还没做的优化」，是 App 现在就自动享受的**；全 SDK 与整个
+依赖树里 `brotli` 关键字命中 **0**，没有可白嫖的解码器。`rest_client.dart` 用
+`headers.forEach(req.headers.set)`，在任何源里加 `Accept-Encoding: br` 会**顶掉**
+默认的 gzip 头，而不是叠加。
+
+`tool/probe_brotli.sh`（可复跑、手动执行、不进 CI）对 11 条真实业务路径各发
+4 种 `Accept-Encoding`，curl 不加 `--compressed`，`size_download` 就是**线上字节数**；
+`cloudflare.com` 做对照自证（探不到 br 就 `exit 2`，不产结论）。2026-11-07 实测
+（行情是实时数据，复跑时字节数会有几十到几百 B 的正常波动，结论不变）：
+
+| 端点 | identity | gzip（现状） | br | br,gzip | 判定 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 新浪报价 · 默认 5 只 | 1 389 | **704** | 1 389 | 704 | 仅 gzip |
+| 新浪报价 · 上限 30 只 | 8 275 | **3 149** | 8 275 | 3 149 | 仅 gzip |
+| 腾讯报价 · 默认 5 只 | 1 948 | **1 000** | 1 948 | 1 000 | 仅 gzip |
+| 腾讯报价 · 上限 30 只 | 15 696 | **7 448** | 15 696 | 7 448 | 仅 gzip |
+| 东财美股补位 | 570 | **303** | 570 | 302 | 仅 gzip |
+| 东财搜索建议 | 365 | **274** | 365 | 274 | 仅 gzip |
+| 新浪目录页 `num=100` | 37 122 | **9 628** | 37 122 | 9 628 | 仅 gzip |
+| 腾讯目录页 `count=200` | 94 587 | **31 005** | 94 587 | 31 005 | 仅 gzip |
+| 新浪日线 80 根 | 19 371 | **4 544** | 19 371 | 4 544 | 仅 gzip |
+| 腾讯日线 80 根 | 7 355 | **2 464** | 7 355 | 2 464 | 仅 gzip |
+| 腾讯分时 | 10 983 | **4 842** | 10 983 | 4 842 | 仅 gzip |
+| **合计** | **197 661** | **65 361** | **197 661** | **65 360** | **0/11 支持 br** |
+
+三个关键读数：
+
+1. **11/11 已经支持 gzip**，`dart:io` 默认头把目录页压掉了 67~74%、
+   K 线 / 分时 56~77%、报价批量 49~62%（越小的报文收益越低，搜索建议只有
+   25%）。「再降 15–20%」的基线搞错了：不是「在 197KB 上再省」，
+   是「在 65KB 上还能不能省」。
+2. **0/11 支持 br**：只声明 `br` 时服务端一律无视，原样返回明文（br 列 ==
+   identity 列）；`br, gzip` 则稳定回落到 gzip（合计 65 360B，那 1B 是
+   东财响应的瞬时波动，不是压缩差异）。**收益天花板 = 0**，加 `br` 反而让
+   默认 5 只的常规轮询从 704B 涨回 1 389B（+97%），全样本 +202%。
+3. 对照域名 `cloudflare.com` 确实回 `Content-Encoding: br`，且
+   `identity 1 334 522B / gzip 300 642B / br 154 803B` —— br 比 gzip 再省
+   **48.5%**。所以「br 更强」这个一般性判断没错，错在**本项目这 11 个端点
+   都不提供**。探针自证通过，不是网络或脚本失灵造成的假否定。
+
+`tool/brotli_client_probe_test.dart` 补上客户端侧实证（真网，命令
+`flutter test tool/brotli_client_probe_test.dart`）：默认请求 `hq.sinajs.cn` 拿到
+`CE=gzip` 且前缀是 `var hq_str_`（已透明解压）；`set Accept-Encoding: br`
+后 `CE=-`、变成明文传输；对 `cloudflare.com` 声明 br 时
+`CE=br` 但 Dart 交出 **约 155KB 二进制乱码**，前缀不是 `<!`。这就是「真有
+端点支持 br 也没法直接用」的实锤——会静默喂给 GBK 解析器。
+
+**要真上 br 的代价**：得引入带原生库的第三方 brotli 解码器（`dart:convert`
+与现有依赖都没有），并自己按 `Content-Encoding` 分流、把解码接回
+512KB 截断 / GBK 原始字节 / 超时归因两条链路；而 APK 7.93MB 里三个 `.so`
+已占 94.3%（二·四十一）。为 0 字节收益加一个 native 依赖，不成立。
+
+**结论：不做**。探针留作回归：将来换源或 CDN 升级 br，重跑
+`bash tool/probe_brotli.sh`；若出现 `Content-Encoding: br`，先评估解码依赖的
+包体 / ABI 成本，再谈真机同源 A/B，别只加一个请求头。
+`test/brotli_boundary_test.dart` 3 条守门（含扫描器自证）把「不许手工设
+`Accept-Encoding` / 不许关 `autoUncompress`」钉住，防的是这种无声回退。
+
+### 明确不做（同等重要）
+
+继续追工具链版本 / 压包体 / 协程重构 / R8 Full Mode 开关 / HCPP / 等引擎 ADPF
+（二·四十五～四十九 已逐条判定）；CI 加 release / artifact / dependabot / matrix
+（`ci.yml` 注释明确只做代码级门禁，dependabot 还会和 `^` 约束 + lock 钉下限 +
+`dependency_pin_test.dart` 打架）；崩溃上报 SDK / i18n / 登录加密 / 多端抽象
+（ROADMAP「明确不做」）；深色模式（A02 是视觉工程：暗色下玻璃要重调且只能真机验）；
+Gradle config cache / 测试分片（构建 64s、全量测试 52s，绝对收益太小）；
+Glance 微件（新功能，ROADMAP 已单列，别混进「升级」）；DNS 缓存 / 预解析
+（**前提不成立**：连接池已消除每轮握手、系统 resolver 已缓存解析，见上节实测；
+仅冷启动重建路径有未量化的理论收益）；端侧 LLM / 端侧嵌入
+（**理由已从「不成熟」更新为「成本倒挂」**：模型 165MB 起、峰值内存 1733MB，
+见上节，运行时虽已 production-ready 但本项目没有可承载的资源预算）；
+主构造函数**批量 / 自动修复式**迁移（净收益为负：只省 12 行却带 31 条 lint info，
+见上节；`kline.dart` 的手工定向迁移已另行采纳）；**收窄
+`-keep class io.flutter.**`**（唯一的大阻塞项，但收益 <1% 常驻内存、
+失败模式是 release 启动即崩，见 Android 17 复核小节与 二·四十九 的 analyzer 数据）；
+`cronet_http` / HTTP/3（**端点不支持 h3**：0/5 宣告，且常规轮询压根不新建连接，
+`tool/probe_http3.sh` 可复跑，见上节）；**Brotli 压缩**（`Accept-Encoding: br`
+的收益天花板是 0：11/11 端点只支持 gzip、默认头已在自动享受；手动加 br 反而
+顶掉 gzip 退回明文，且 `dart:io` 没有 br 解码器，`tool/probe_brotli.sh` 与
+`tool/brotli_client_probe_test.dart` 可复跑，见上节）。
+
+> **状态：本章是候选盘点，不是已完成清单。** A / B / C 三条路线都还没动手，
+> 路线相关代码零改动。本章之外有四处已落地：二·四十二 的主构造函数试点转正
+> （`lib/models/kline.dart`）、本节新增的 `test/r8_config_boundary_test.dart`
+> 4 条配置守门断言（都是防回退，不是路线 C 的验证能力建设）、
+> 二·五十二 的工具链再升一档（AGP 9.5.1，属维护动作，不属于 A/B/C 任一条路线）、
+> 以及 **二·五十三 的增量日线**（候选之外的独立优化，用例数由 476 → 487）。
+> 本节另新增 `test/brotli_boundary_test.dart` 3 条内容编码守门（防回退，
+> 用例数 487 → 490）。本章留了三支可复跑探针：`tool/probe_http3.sh`、
+> `tool/probe_brotli.sh`、`tool/brotli_client_probe_test.dart`
+> （**运行时代码零改动**）。
+> ROADMAP 结尾那句仍然准确：你缺的不是新技术，是「下一次系统或引擎变更时
+> 不会静默坏掉」的那层断言。
+
+
+## 二·五十二、AGP 9.2 → 9.5.1：三个版本一起升，换来一条不用改配置的命令（2026-11-07）
+
+**动机不是「追新」**：二·四十九 为跑一次 R8 Configuration Analyzer，得在
+`settings.gradle.kts` 临时挂 `com.android.tools:r8:9.4.14`、跑完还原再重打包。
+AGP **9.3 起把分析器做成了独立 Gradle 任务**，9.5.1 是当时最后一个稳定版
+（Google Maven 里 9.6.0-alpha03 仍是预览，`<release>` 标签会误导，别读它）。
+升级顺带把兼容链一起对齐。
+
+### 版本链（三处必须一起改）
+
+| 项 | 之前 | 现在 | 依据 |
+| --- | --- | --- | --- |
+| AGP | 9.2.0 | **9.5.1** | 要求 Gradle ≥ 9.6.0、JDK ≥ 17，最高支持 API 37；也修掉了 AGP 9.2.0 的 `LibraryExtension.getSourceSets()` ClassCastException 回归 |
+| Gradle | 9.4.1 | **9.6.0** | AGP 9.5 的最低要求，腾讯镜像已有 `gradle-9.6.0-all.zip` |
+| KGP | 2.4.0 | **2.4.21** | 2.4.0 的 Gradle 完全支持上限是 9.5.0；2.4.21 支持到 9.7.0，且 2.5 仍是 Beta |
+| JDK | 21 | 21 | 不变 |
+
+Flutter 3.47.9 的 `DependencyVersionChecker` **只设下限**（AGP ≥ 9.0.1、KGP ≥ 2.3.20），
+没有上限，所以 9.5.1 不会被拦；`flutter analyze --suggestions` 实测仍报
+`compatible java/gradle/agp/kgp`。但 `gradle_utils.dart` 的
+`maxKnownAgpVersion = '9.2'` 没跟上——它只喂版本建议（超出时返回「已知的最高
+Gradle 版本」），不影响构建，实测 `flutter build apk` 零警告零提示。
+
+### 同源 A/B（同一份源码，只换工具链）
+
+| 指标 | AGP 9.2.0 | AGP 9.5.1 | Δ |
+| --- | --- | --- | --- |
+| APK | `8 318 756` | `8 316 220` | **−2 536 B** |
+| `classes.dex` | `987 528` | `979 016` | **−8 512 B** |
+| `baseline.prof` | `949` | `1 052` | +103 B（R8 重新改写；自写 25 条仍活，`FlutterActivity` 在） |
+| `libapp.so` | `4 719 496` | `4 719 496` | **0**——Dart AOT 与工具链无关，正好证明同源 |
+| 构建警告 | 0 | **0** | 合并配置首行确认来自 AGP 9.5.1 抽取的 optimize 文件 |
+
+首次构建 7m12s（大头是下载 Gradle 9.6.0 约 240MB 与 AGP 9.5.1 依赖），不是编译变慢。
+**别把 −8.5 KB dex 读成「R8 变强了」**：没有新增任何优化开关，没删任何 keep 规则，
+只是新版 R8 的代码生成差异。二·四十九 的 Full Mode A/B 数字（987 524 / 1 063 772）
+是 9.2 时代的历史值，别拿来对现在的包。
+
+### 真收益：分析器不再需要临时改配置
+
+```
+cd android && ./gradlew :app:analyzeReleaseR8Config      # 49s
+```
+
+直接产出 `build/app/reports/r8/r8-config-analyzer-release.html` + `.pb`，
+不用挂 R8、不用改 `settings.gradle.kts`、不用还原、不用重打包。
+新版报告载荷从内嵌 base64 protobuf 换成 `application/json`（`keepradius-data`），
+`build/agp_upgrade/score.py` 按与旧版相同的公式解码，可复现。
+
+| 指标 | AGP 9.2 + 临时 R8 9.4.14 | AGP 9.5.1 原生任务 |
+| --- | --- | --- |
+| Optimization | 58.2%（阻止 5 995） | **58.2%（阻止 5 995）** |
+| Shrinking | 58.9%（阻止 5 905） | **58.9%（阻止 5 905）** |
+| Obfuscation | 59.6%（阻止 5 803） | **59.6%（阻止 5 803）** |
+| live 项 / 规则数 / 全局禁用 | 14 352 / 63 / 0 | 14 356 / 63 / **0** |
+| 最阻塞规则 | `-keep class io.flutter.** { *; }` 5 482 项 | 同左、5 482 项 |
+
+三项得分和被阻止项数**逐项完全一致**。换 R8 版本没有改变 keep 规则的实际影响面，
+二·四十九「不收窄 io.flutter 规则」的判定继续成立（它是 JNI 反向调用，失败即启动崩，
+而 Java 堆只占 PSS 的零头）。
+
+### 独立 Gradle 任务的弃用警告（不是本次引入的）
+
+`--warning-mode all` 下会展开四类，正常 `flutter build apk` 是零警告：
+
+- `android.newDsl=false` / `android.builtInKotlin=false`——确实在
+  `android/gradle.properties` 里，但注释写明「added by the Flutter template」，
+  AGP 10 才移除；
+- `org.jetbrains.kotlin.android` 插件被 AGP 9.x 内置 Kotlin 取代的弃用提示；
+- `Project` 对象当依赖记法（Flutter 的 includeBuild 插件，Gradle 10 会变错误）；
+- 若干 `It will be removed in version 10.0 of the Android Gradle plugin`。
+
+这次**没有擅自删模板标志**：删了会改变 Flutter 插件行为，且远离本次目标。
+等 Flutter SDK 自己更新模板时一起处理；AGP 10 之前不构成阻塞。
+
+### 验证
+
+`flutter analyze` 0 issue；全量 **476** 通过 / CI 口径 **469** 通过；
+`tool/build_apk.sh` + `verify_apk.py` 全绿（R8 生效、ADPF 会话在包里、
+自写 profile 规则活过 R8、targetSdk 37、单 arm64 架构）；
+真机装新包（`lastUpdateTime=2026-11-07 19:57:51`）冷启动日志
+`refresh: 投票 60Hz…` 与 `adpf: 会话已建立 … target=8333µs` 均正常、无崩溃。
+
+
+## 二·五十三、增量日线：TTL 过期后只补最新一根（已落地，2026-11-07）
+
+**需求原文**：只拉「最新 1 根」再本地拼接，而不是每次拉 80 根；详情页打开时
+缓存已有 80 根，只请求 `datalen=1` 补最后一根；减少流量和解析时间。
+
+**结论：做了，但探测根数从 1 改成 2**——第 1 根当连续性锚点，只拼第 2 根。
+仍省 97%（新浪）/ 75%（腾讯），但把「静默画错」的三种路径全堵上了。
+
+### 先验证前提：`tool/probe_kline_delta.py`（可复跑，手动执行、不进 CI）
+
+同一时刻对每个端点取 `count=80/3/2/1`，比字节数、根数和末根字段。
+对照自证：若 `count` 被服务端忽略（三次响应一样），脚本直接 `exit 2`。
+2026-11-07 实测：
+
+| 源 / 标的 | 80 根 | 2 根 | 1 根 | 1 根末根 == 80 根末根 | 2 根首根 == 80 根倒数第 2 根 |
+| --- | ---: | ---: | ---: | --- | --- |
+| 新浪 A 股 sh600519 | 19 371 B | 525 B | 283 B | ✅ 逐字段相同 | ✅ |
+| 腾讯 A 股 sh600519 | 7 355 B | 1 816 B | 1 745 B | ✅ 逐字段相同 | ✅ |
+| 腾讯 指数 sh000001 | 7 694 B | 1 844 B | 1 769 B | ✅ 逐字段相同 | ✅ |
+| 腾讯 美股 usAAPL.OQ | 7 251 B | 1 697 B | 1 627 B | ✅ 逐字段相同 | ✅ |
+| 腾讯 港股 hk00700 | 14 052 B | 1 628 B | 1 558 B | ✅ 逐字段相同 | ✅ |
+
+四条事实：
+
+1. **两个源的 `count` 参数都真的生效**（`datalen` / `param` 第 5 段），
+   不是忽略参数后回默认 80 根；
+2. **`count=1` 的末根与 `count=80` 的末根逐字段相同**——这点最关键：
+   腾讯走 `qfq` 前复权，若复权基准随返回根数变，拼接会留下 79 根旧价
+   + 1 根新价，图上凭空多一个跳空。实测不变，方案才成立；
+3. **`count=2` 的首根正好是 80 根响应的倒数第 2 根**，可以当锚点；
+4. 腾讯有约 1.6KB 固定信封（`qt` / `prec` / `version`），所以省流比例
+   不如新浪，但绝对量仍省 5.5～12.4KB。
+
+另一半前提也核过：生产 `KlineLoader` 是**组合根单例**
+（`AppDependencies.production()` → `main.dart:131` → `QuoteListPage.klineLoader`
+→ `showQuoteDetailSheet(loader:)`），跨详情页打开共享缓存，
+「打开时缓存已有 80 根」在一次 App 会话内成立。但
+`AppConfig.klineCacheTtl = 30s`，**30 秒内本来就是 0 请求**；优化真正生效的
+场景是「TTL 过期后重开详情页 / 切回日 K tab」，不是每次打开。
+
+### 为什么最后拉 2 根：`datalen=1` 证明不了连续性
+
+只拉 1 根时，下面三种事故都**不会报错**，只会画错：
+
+| 情形 | 缓存末根 | 服务端末根 | 1 根拼接的结果 |
+| --- | --- | --- | --- |
+| App 后台几天 / 长假 / 停牌 | D-5 | D | 缺 D-4…D-1，X 轴照旧等距，MA 全算错 |
+| 除权除息，`qfq` 全历史重算 | 旧价 79 根 | 新价 1 根 | 79 根旧基准 + 1 根新基准，人造跳空 |
+| 主备切换 | 新浪（不复权、不含当日） | 腾讯（qfq、含当日实时 bar） | 两种口径混进一条序列 |
+
+加一根当锚点，要求它与缓存里某根**逐字段相同**（含价格、成交量），
+上述三种会当场对不上 → 回退全量。多花的成本只有 **242 B（新浪）/
+70～75 B（腾讯）**，从 `count=1` 的 98.5% / 76～89% 省流退到
+**97.3% / 75～88%**，几乎不变。这比引入 `market_holidays.dart` 去推算
+「中间该有几个交易日」更稳：锚点是服务端自证的，不依赖一张每年要补、
+还会过期的手工表，也不分 A / H / 美市场。
+
+### 实现：UI 零改动
+
+`loadDaily()` 内部三条出口，调用方（`quote_detail_sheet.dart`）一行没改：
+
+1. 未过期缓存 → 0 请求；
+2. 过期缓存还在 → `_tryDelta()` 只问**同一个源**要 2 根，锚点对上则
+   追加最新一根 / 覆盖同日那根，按 `count` 裁窗口，写回新 TTL；
+3. 任何可疑 → 原样走全量主备（`_load`），行为与改造前一致。
+
+三条硬约束写在代码注释里，也各有一条守门测试：**同源**（绝不让备源的
+bar 拼到主源序列上）、**锚点逐字段校验**（缺口 / 复权 / 格式变化一律回退）、
+**失败即全量**（非 2xx / 空 / 根数不对 / 抛 `Error` 都只变成 `null`）。
+`_retry()` 的 `clear()` 仍保证手动重试是实打实的全量重拉；`count=1`
+因缓存不足两根，自动退化为普通请求。分时不受影响（本次只动日线）。
+
+改动文件：`lib/services/kline_loader.dart`（增量逻辑）、
+新增 `test/kline_incremental_test.dart`（11 条）、
+`test/kline_test.dart`（「缓存过期后重新请求」改成显式断言 `[80, 2]`）、
+新增 `tool/probe_kline_delta.py`（探针）。
+
+### 收益量级：别把「每次刷新」说成「每秒」
+
+- 单次刷新：新浪 **19 371 → 525 B（−97.3%）**，腾讯 A 股
+  **7 355 → 1 816 B（−75.3%）**，港股 **14 052 → 1 628 B（−88.4%）**；
+  JSON 解析 80 行 → 2 行。
+- 对照：30 只标的 3s 轮询，一个 30s 窗口约 **69 430 B**（实测批量
+  6 943 B × 10）。所以这是「一次详情页刷新省约 19KB」，
+  不是持续性带宽优化；30 秒内更是 0 请求。
+- 异常路径（缺口 / 复权 / 换源 / 失败）会先花一次 2 根探测再全量，
+  **多一个 RTT**——用一次小概率开销换「绝不画错」，这个取舍是刻意的。
+- 解析时间收益没做真机 A/B：80 行 JSON 在 Dart 里是毫秒级，
+  相对一次外网 RTT 可忽略，不值得按同源交叉轮测的口径去测。
+
+### 验证
+
+先红后绿：`test/kline_incremental_test.dart` 实现前 **9 红 2 绿**、
+实现后 **11/11 绿**。`flutter analyze` **0 issue**；全量 **487** 通过 /
+CI 口径（`--exclude-tags preview`）**480** 通过；
+`tool/build_apk.sh` + `verify_apk.py` 全绿（APK 7.93 MB、`libapp.so` 4.50 MB、
+R8 / ADPF / baseline.prof / 四个数据源端点全在包里）。
+**真机端到端未验**：本次只动 Dart 数据层，探针在开发机跑真网端点，
+没有打包装机去抓实际请求序列；要验可用 `adb logcat -s app.supermarket`
+看 `走势 …：增量 …` 与全量回退两类日志。
+
+
 ## 三、跑起来（3 步）
 
 ### 1. 不需要 flutter create
@@ -2706,7 +3859,7 @@ static const List<StockConfig> stocks = <StockConfig>[
 ```bash
 flutter pub get
 flutter analyze        # 实测：No issues found!
-flutter test           # 实测：413 通过（--exclude-tags preview；全量 420，含 5 张 golden）
+flutter test           # 实测：483 通过（--exclude-tags preview；全量 490，含 5 张 golden）
 flutter run            # 连真机或模拟器（需要 Android SDK）
 ```
 
@@ -2825,6 +3978,7 @@ REST 快照 → QuoteSnapshotClient.fetch → shouldApplyQuote(旧, 新) 为真�
 | `feed_contract_test.dart` | 覆盖契约：备源不覆盖的市场不得被静默丢下；**美股补位**（腾讯当主力 / 新浪漏一行 / 主源连续失败切腾讯 / 补位连续失败要提示 / 主链拿全时零额外请求）；pause 挡住已在途响应；未来时间戳不污染棘轮 |
 | `us_market_test.dart` | 新浪 `gb_` 字段表与混批；腾讯美股写法（NASDAQ→.OQ、NYSE→.N）；腾讯日 K 量是股；**东财补位源**（secid 映射、`fltt=2` 小数口径、字段/时间戳/单位、`-` 与 0 价跳过、diff 为对象、目录不在这里拉）；存档 exchange 往返与 AMEX 挡闸 |
 | `public_source_ui_test.dart` | 默认通道是轮询且不要 Key；主备顺序；公开源不弹凭证提示、不显示配额上限、页脚写轮询节奏；推送源仍显示配额与「实时推送」；切后台 pause、回前台 resume |
+| `design_library_boundary_test.dart` | 全仓库不许出现 `package:flutter/material.dart` / `cupertino.dart`（扫 `lib` / `test` / `tool`，命中即点名文件）；扫描器自身用合成目录验红（material / cupertino / 缩进三种形态）；pubspec 必须直接声明 `material_ui`；用新库的文件数不得少于 20（防止有人悄悄改回去） |
 
 > 半开连接那条用例值得单独说：`testWidgets` 的 FakeAsync **只接管 `package:clock` 的 `clock.now()`**，
 > 不管 `DateTime.now()`。所以 `QuoteWsService` 留了一个 `DateTime Function()` 注入口
@@ -2866,7 +4020,7 @@ WebSocket 已建立，等待认证结果
 ```bash
 ./tool/build_apk.sh          # 构建（产物同时复制为 super market.apk）
 # 产物：build/app/outputs/flutter-apk/app-release.apk
-#       当前实测 7.91 MB（8 298 963 字节，仅 arm64-v8a，R8 + .so 压缩存储）
+#       当前实测 7.93 MB（8 318 768 字节，仅 arm64-v8a，R8 + .so 压缩存储）
 ```
 
 > 2026-11-07 合并构建脚本后，用默认口径（**不混淆**）重建过一次：7.91 MB /
@@ -2909,7 +4063,7 @@ WebSocket 已建立，等待认证结果
 | **仅 arm64 + R8 + 剥离符号** | **14.97 MB** | 3.19 MB | 当时采用（此后又叠加 `.so` 压缩，见上） |
 | 仅 arm64 + R8 + **混淆** | 14.91 MB | 3.13 MB | 只再省 0.06 MB，**不采用**（2026-11-07 在当前包体上复测：0.03 MB，见 二·三十九） |
 
-> **以下是 16 MB 时代的体积演进（留证）**：数字对不上现在的 7.91 MB 是正常的，
+> **以下是 16 MB 时代的体积演进（留证）**：数字对不上现在的 7.93 MB 是正常的，
 > 中间做了 `.so` 压缩存储。这一段的价值是看「每个改动各自花了多少字节」，不是当前值。
 >
 > 上表是「只有行情列表」那一版的对照数据，用来隔离每个参数各自的收益。
@@ -3073,7 +4227,7 @@ python tool/verify_apk.py
 
 ```
 包体   : build/app/outputs/flutter-apk/app-release.apk
-        7.91 MB（解压后 18.60 MB）
+        7.93 MB（解压后 18.62 MB）
 
 架构   : ✓ ['arm64-v8a']
 

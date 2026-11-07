@@ -18,9 +18,9 @@
 /// 启动：`flutter widget-preview start`（IDE 侧栏也有同名面板）。
 library;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../config/app_config.dart';
 import '../config/app_theme.dart';
@@ -31,6 +31,11 @@ import '../widgets/quote_tile.dart';
 
 /// 预览里钉死的时刻：A 股盘中（10:19:57）。
 final DateTime _t = DateTime(2026, 11, 6, 10, 19, 57);
+
+/// 2026-02-17（周二，春节）：工作日但交易所休市。
+///
+/// 角标必须写「休市」——二·三十八 之前这里会显示「交易中」。
+final DateTime _cnNewYear = DateTime(2026, 2, 17, 10, 0);
 
 const StockConfig _gl = StockConfig(code: '000651', name: '格力电器', region: 'SZ');
 
@@ -176,6 +181,26 @@ Widget quoteTileLargeText() {
 Widget marketSessionBadgeLive() {
   return Align(
     alignment: Alignment.centerLeft,
-    child: MarketSessionBadge(now: () => _t, regions: const <String>['SZ', 'SH']),
+    child: MarketSessionBadge(
+      now: () => _t,
+      regions: const <String>['SZ', 'SH'],
+    ),
+  );
+}
+
+/// 交易时段角标：法定节假日。2026-02-17 是周二（春节），旧逻辑会写「交易中」。
+@Preview(
+  group: '角标',
+  name: '节假日休市',
+  size: Size(240, double.infinity),
+  wrapper: previewShell,
+)
+Widget marketSessionBadgeHoliday() {
+  return Align(
+    alignment: Alignment.centerLeft,
+    child: MarketSessionBadge(
+      now: () => _cnNewYear,
+      regions: const <String>['SZ', 'SH'],
+    ),
   );
 }

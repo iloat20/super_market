@@ -1,13 +1,13 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/pages/quote_list_page.dart';
 import 'package:super_market/services/local_store.dart';
-import 'package:super_market/services/symbol_directory.dart';
-import 'package:super_market/services/watchlist_repository.dart';
 import 'package:super_market/services/rest_client.dart';
 import 'package:super_market/services/source/symbol_catalog.dart';
+import 'package:super_market/services/symbol_directory.dart';
+import 'package:super_market/services/watchlist_repository.dart';
 import 'package:super_market/widgets/taiji_mark.dart';
 import 'fake_feed.dart';
 

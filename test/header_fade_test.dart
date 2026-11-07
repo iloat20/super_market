@@ -1,15 +1,15 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:super_market/pages/quote_list_page.dart';
 import 'package:super_market/services/local_store.dart';
-import 'fake_feed.dart';
 import 'package:super_market/services/watchlist_repository.dart';
 import 'package:super_market/widgets/glass.dart';
 import 'package:super_market/widgets/quote_tile.dart';
+import 'fake_feed.dart';
 
 /// 页头与列表的接缝（用户：「不要下滑刷新」「上滑时页头的分界线很明显」）。
 ///

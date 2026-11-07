@@ -112,7 +112,7 @@ void main() {
     // 下面的钉住用例仍然要绿，但 main.dart 里的注释需要同步修订。
     final GlassQuality quality = await pinnedCeilingOf(tester);
     expect(quality, isNot(GlassQuality.premium));
-    addTearDown(() async => tester.pumpWidget(const SizedBox.shrink()));
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
   });
 
   testWidgets('钉住 premium 的配置连静态探针的强制降档也兜得住', (WidgetTester tester) async {
@@ -132,6 +132,6 @@ void main() {
           'minQuality 必须把 Phase 1 的 forced 值兜回 premium，'
           '否则 kGlassSurface 的 iOS 27 光学会在首帧就退化',
     );
-    addTearDown(() async => tester.pumpWidget(const SizedBox.shrink()));
+    addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
   });
 }
