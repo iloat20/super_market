@@ -1,27 +1,16 @@
 #!/usr/bin/env bash
-# 超级市场 release 构建脚本（Git Bash / Linux / macOS 通用）。
+# ============================================================================
+# 已废弃（2026-11-07）：根目录的旧构建脚本，保留只为「用错时当场拦住」。
 #
-# 必须带这些参数，理由：
-#  - --target-platform android-arm64：只打 64 位引擎（三 ABI 混包 48.9MB → 16.6MB）
-#  - --obfuscate + --split-debug-info：混淆 Dart 代码并把符号表分离到
-#    build/debug-info/（还原混淆堆栈时用它，别删）
+# 它和 tool/build_apk.sh 的差别不是风格问题，而是产物能不能诊断：
+#   - 开 --obfuscate：崩溃栈变成 a.b.c()，没有符号表（build/debug-info）就还原不了；
+#   - 不跑 tool/verify_apk.py：ABI / R8 keep / 数据源有没有真进包，没人验；
+#   - 不设国内镜像与 NO_PROXY：换个网络环境就卡在下载。
+# 所以它不再构建任何东西，直接失败并指路。
 #
-# 产物：build/app/outputs/flutter-apk/app-release.apk（flutter 固定名）
-#       gradle 的 copySuperMarketApk 会复制为
-#       build/app/outputs/supermarket/super market.apk
-set -euo pipefail
-cd "$(dirname "$0")"
-
-if ! command -v flutter > /dev/null 2>&1; then
-  FLUTTER="${FLUTTER:-C:/Users/Administrator/Downloads/flutter/bin/flutter}"
-else
-  FLUTTER=flutter
-fi
-
-"$FLUTTER" build apk --release \
-  --target-platform android-arm64 \
-  --obfuscate \
-  --split-debug-info=build/debug-info
-
-echo
-echo "[OK] 产物：build/app/outputs/supermarket/super market.apk"
+# 需要混淆能力时用：./tool/build_apk.sh --obfuscate（默认不混淆）。
+# ============================================================================
+echo "[!] 这个脚本已废弃，不会再构建任何东西。" >&2
+echo "    请用：./tool/build_apk.sh" >&2
+echo "    需要混淆：./tool/build_apk.sh --obfuscate（符号表在 build/symbols）" >&2
+exit 1
