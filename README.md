@@ -1,60 +1,156 @@
-# A 股实时行情（个人自用 MVP）
+# 超级市场 · Supermarket
 
-## 当前状态（2026-11-05）
+**A 股 / 港股 / 美股三市场盯盘，一只 Android App。**
 
-> 本文是**开发日志**：二·X 各章按时间记录迭代，包含大量已移除的历史形态。
-> 「当前怎么跑 / 文件在哪 / 门禁是多少」一律以本节和源码为准。
+Flutter 自绘的液态玻璃界面。行情走**新浪财经（主）+ 腾讯财经（备）**的公开 HTTP 接口，
+3 秒一轮轮询——**不需要 API Key、没有后端、没有账号**。点开任意一只，是八项指标
+加一块自绘的分时 / 日 K（不引图表库）。
+
+<p align="center">
+  <img src="docs/preview/device/27-glass-v21-restored.png" width="290" alt="行情列表：A 股 / 港股 / 美股混排">
+  <img src="docs/preview/device/24-glass-v21-clear-detail.png" width="290" alt="详情弹层：分时图 + 八项指标">
+</p>
+
+| 项 | 值 |
+| --- | --- |
+| 版本 | `1.0.7+35` |
+| 包名 / 显示名 | `app.supermarket` / 超级市场 |
+| 平台 | Android 7.0+（minSdk 24，targetSdk 37），只打 `arm64-v8a` |
+| 安装包 | **7.91 MB**（release：R8 + `.so` 压缩存储） |
+| 技术栈 | Flutter 3.47.9 / Dart 3.13.7；无状态管理库、无图表库 |
+| 运行时依赖 | `liquid_glass_widgets`、`path_provider`、`jni` / `jni_flutter` |
+| 规模 | `lib/` 52 文件 12.9k 行；`test/` 59 文件 12.4k 行、**456 条用例**（含 5 张 golden） |
+
+## 能力
+
+| 能力 | 现在是什么 |
+| --- | --- |
+| 三市场 | A 股（SH/SZ）、港股（HK）、美股（US，NASDAQ/NYSE），可混在一个自选列表里、一次请求发全 |
+| 零凭证 | 新浪 `hq.sinajs.cn`（`Referer` 换 GBK）+ 腾讯 `qt.gtimg.cn` 兜底，连续失败自动换源 |
+| 报价节奏 | 3 秒一轮 HTTP 轮询——**不是 300ms**：实测轮得越快拿到的数据越旧（服务端缓存），见 二·十 |
+| 详情 | 分时 / 日 K 自绘；今开、最高、最低、昨收、成交量、成交额、振幅、更新时间，弹层开着时继续跳 |
+| 订阅管理 | 中文名 / 全拼 / 代码输入即搜（本地目录 + 东方财富建议双路合并去重），存本地，上限 30 只 |
+| 交易时段 | 未开盘 / 集合竞价 / 交易中 / 午间休市 / 已收盘 / 休市，按订阅市场**并集**判定，含美股夏令时、法定节假日与半日市（2026–2027） |
+| 液态玻璃 | `liquid_glass_widgets` premium 档真着色器；整页只做一次 backdrop，卡片不各拷一份背景 |
+| 只在前台 | 切后台立刻停轮询、回前台立刻补一轮；没有后台服务、没有保活、没有推送 |
+| 无障碍 | 每张卡 `Semantics` 播报；7 处小控件触控目标 48×48dp；3.0x 字体零溢出且零截断 |
+
+## 快速开始
+
+```bash
+flutter pub get
+flutter run            # 接真机或模拟器即可，不需要填任何 Key
+```
+
+打包（产物同时复制为 `build/app/outputs/supermarket/super market.apk`）：
+
+```bash
+./tool/build_apk.sh        # 固定 arm64 + R8 + 符号分离，说明见 十
+python tool/verify_apk.py  # 装机前自检：ABI / targetSdk / 端点是否真在包里
+```
+
+> Flutter 不在 PATH 时先 `export PATH=/c/Users/Administrator/Downloads/flutter/bin:$PATH`；
+> 开代理会让 `flutter_tester` 起不来，跑测试前先 `unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY`。
+
+## 门禁
+
+```bash
+flutter analyze                       # 必须 0 issue
+flutter test --exclude-tags preview   # 449 通过（CI 口径）
+flutter test                          # 456 通过（本机全量，含 5 张 golden）
+```
+
+CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-latest**：golden harness
+要真中文字体，Linux runner 上 SimHei 换成文泉驿会让像素比对必红，所以 golden 只在本机跑。
+
+## 目录导航
+
+| 你想干什么 | 看哪 |
+| --- | --- |
+| 跑起来 / 排错 / 打包 | 三、跑起来 · 七、排错表 · 十、构建产物 |
+| 换数据源 | 二·九 数据源抽象 · 二·十 免费源实测 · 二·十一 切到公开源 · 二·十三 搜索 |
+| 改界面 / 玻璃 | 二·五 液态玻璃 · 二·二十 厚玻璃 · 二·三十四 边缘光学（v21 是当前档） |
+| 市场支持 | 二·十五 港股 · 二·三十三 美股 · 二·二十九 时段角标 · 二·三十八 交易日历 |
+| 性能 | 二·二十三 / 二·二十四 · 二·三十七 · `docs/PERF-*.md` |
+| 为什么这么写 | 一、iTick 协议事实 · 二·八 收盘快照 · 二·十二 走势图 · 二·二十七 来源判定 |
+| 审查 / 路线 | 九、已验证 / 未验证 · `docs/review-2026-11-05.md` · `docs/ROADMAP-2026-11-06.md` |
+| Android 17 对齐 | `docs/ANDROID17-ALIGNMENT-2026-11-07.md`（16KB 页 / edge-to-edge / 16 项行为变更逐条判定） |
+
+> 下文是**开发日志**：二·X 各章按时间记录，包含大量已移除的历史形态
+> （iTick WebSocket、Token、配额卡、「快照」字样……），读到这些词一律理解为「当时」。
+> 「现在怎么跑 / 文件在哪 / 门禁是多少」以本页上方的表格与源码为准，
+> 不要以日志里的旧数字为准——那些数字在当时是真的，现在不一定。
+
+---
+
+## 现状与已知缺口（2026-11-07）
 
 | 项 | 当前值 |
 | --- | --- |
-| 项目 / 包名 | `super_market` / `app.supermarket`（`android/app/build.gradle.kts`；2026-11-06 由 `supermarket.app` 改名，见 十「包信息」） |
-| 技术栈 | Flutter 3.47.9 / Dart 3.13.7，仅 Android，compileSdk / targetSdk 37 |
-| 行情链路 | 新浪主 + 腾讯备，3s HTTP 轮询；**零凭证、无 WebSocket、无 iTick** |
-| 门禁 | `flutter analyze` 0 issues；`flutter test` **333 通过 + 0 skip**（含 5 张 golden 视觉基线、3 条像素级对比度断言、4 条 3.0x 用例、18 条报价新鲜度用例） |
-| 日志 tag | 原生 `super_market`（`MainActivity.kt`）；Dart `debugPrint` 走 `flutter` |
+| 行情链路 | 新浪主 + 腾讯备（A/H）+ 东财补位（美股），3s HTTP 轮询；**零凭证、无 WebSocket、无 iTick**。K 线走新浪 / 腾讯，搜索走东方财富 |
+| 门禁 | `flutter analyze` 0 issues；`flutter test` **420 通过 + 0 skip**（CI 口径 `--exclude-tags preview` 为 413，少的 7 条是 golden harness） |
+| 日志 tag | 原生 `super_market`（`MainActivity.kt`，包名改成 `app.supermarket` 后 tag 没跟着改）；Dart `debugPrint` 走 `flutter` |
 | 帧数据 | `tool/measure_frames.sh`（profile 包 + `PERF_LOG` → `FrameTiming`）；`dumpsys gfxinfo` 对 Flutter 自绘恒为 0 帧 |
+| 签名 | 正式密钥：`android/keystore.properties` → `android/keystore/supermarket-release.jks`，**两者都在 `.gitignore` 里，务必另行备份**（丢了就无法以同一身份发版） |
 
-**下文仍会出现、但已移除的形态**：iTick WebSocket / REST 收盘快照、`AppConfig.token`、
-Token 提示条、`n/3` 配额卡、页脚说明胶囊、下拉刷新与右上角刷新按钮、连接状态胶囊，
+**日志里会撞到的已删文件 / 已删概念**：`AppConfig.token`、Token 提示条、
+`n/3` 配额卡、页脚说明胶囊、下拉刷新与右上角刷新按钮、连接状态胶囊，
 以及 `quote_ws_service.dart` / `quote_parser.dart` / `quote_snapshot_client.dart` /
-`source_switch_test.dart` 等文件。读到这些词一律理解为「当时」。
+`source_switch_test.dart`。读到这些词一律理解为「当时」。
 
-**已知缺口**
-- **视觉基线与截图是两套东西**：`test/preview/app_preview_test.dart` 生成
-  `test/preview/goldens/*.png`（6 张，390×844，进 `flutter test` 门禁）；
-  `docs/preview/*.png` 是 iTick 时代的历史截图（含「3 / 3」「实时推送」等已不存在的文案），
-  **只作历史对照，不是基线**。两者不要互相覆盖。
-- golden 的保真度边界：`flutter_tester` 不支持 Impeller，玻璃走 BackdropFilter 降级路径，
-  对布局/字号/颜色/信息层次有决定性，对**玻璃光学的像素级还原**没有——真机观感仍需人工走查。
-- **性能基线已补采（2026-11-05 晚，release 口径）**：冷启动中位 403ms、
-  滚动 raster p50 4.1 / p90 4.7 @120Hz（87 帧 0 jank，判定 ✓）、前台静置
-  raster ~12.5ms（判定 fail，语义是功耗信号不是卡顿——每帧重跑全屏玻璃
-  模糊）、内存 PSS 112MB。**盘中持续刷新帧率仍缺**（收盘无重绘源，补采
-  命令见 `docs/PERF-BASELINE-2026-11-05.md` 第五节）。工具脚本 PKG 旧包名
-  已修。见 `docs/PERF-BASELINE-2026-11-05.md`。
-- **3.0x 动态字体溢出已修（2026-11-05）**：详情弹层两个 Row 原本右溢 283 / 940 px、
-  订阅弹层右溢 155 px，现在 0 溢出且**0 截断**（新增逐条 `didExceedMaxLines` 与
-  `FittedBox` 缩放比断言）。两条 skip 已移除，见 二·二十六。代价：极端倍率下布局会重排
-  （八宫格单列、名称与代码堆叠），1.0x 的 6 张 golden 逐字节未变。
-- **A05 / A10 已完成（2026-11-05）**：小字对比度实测从 1.94:1 提到 **≥4.71:1**，
-  图表补了可见的区间摘要、八宫格补了方向词。代价是调色板与弹层面板不透明度都改了，
-  见 二·二十五。（区间摘要同日又整体移除，见 二·三十一；方向词保留。）
-  **剩余**：A02（深色模式缺失）、A08（液态玻璃用在内容层，产品决策）。
-- **「快照 / 实时」判定已改为看时间戳（2026-11-05）**：原来读 `Quote.source`，而
-  `QuoteSource.snapshot` 全仓库零构造点，页脚永远说「实时推送」。现在按
-  `isStale(quote, now)` 判定，见 二·二十七。随后补齐了三处收尾（二·二十八）：
-  跨过判决线自动翻转、「更新时间」跨天补日期、页脚文案改成「轮询更新」。
-- 二 的目录树、二·六 功能清单、九 的验证表是早期快照，见各节开头的校正说明。
+**仍未覆盖（2026-11-07）**
 
-Android 单平台、只做「前台盯盘」的极简行情 App：**新浪财经为主、腾讯财经为备**，3 秒一轮
-HTTP 轮询、`Referer` 换 GBK 明文；默认 4 只股票（A 股 3 + 港股 1，可在 App 内改，上限 30）；每只股票一个
-`ValueNotifier<Quote>` 做局部刷新。没有后台保活、没有前台服务、没有状态管理库、**不需要 API Key**。
+- **玻璃光学只能真机验收**：`flutter_tester` 不支持 Impeller，premium 着色器走
+  BackdropFilter 降级路径——golden 对布局 / 字号 / 颜色 / 信息层次有决定性，
+  对玻璃光学的像素级还原**没有**。同源 A/B 实测：premium 参数在测试渲染器里逐像素零影响。
+- **盘中持续刷新的帧率没有基线**：收盘后没有重绘源。补采命令见
+  `docs/PERF-BASELINE-2026-11-05.md` 第五节。已有基线（2026-11-05 晚，release 口径）：
+  冷启动中位 403ms、滚动 raster p50 4.1 / p90 4.7 @120Hz（87 帧 0 jank）、
+  前台静置 raster ~12.5ms、内存 PSS 112MB。
+- **静置 12.5ms 是功耗信号，不是卡顿**：每帧重跑全屏玻璃模糊，属引擎级机制
+  （BackdropFilter → 全帧重绘），现状无害、暂不改，见 二·二十三。
+- **交易日历只写到 2027 年**：法定节假日与半日市已覆盖（`lib/config/market_holidays.dart`，
+  A/H/US 共 82 条全天休市 + 9 条半日市）。表外年份（2028 起）会退回「工作日 + 时段」，
+  也就是重新显示「交易中」——有一条「日历还没过期」的测试会先红，见 二·三十八。
+- **美股：报价有补位，K 线仍单源**。报价是新浪主 + 东方财富补（腾讯 `qt.gtimg.cn`
+  不支持美股），新浪挂掉时 A/H 切腾讯、美股继续由东财供数；K 线只有腾讯（新浪 `gb_`
+  没有 K 线）。两边缺口正好错开，见 二·三十三 / 二·四十。
+- **A02 深色模式缺失**、**A08 液态玻璃用在内容层**：后者是产品决策，玻璃在内容层
+  是否影响长时间阅读还没有结论。
 
-点开任意一只，除了八项指标，还有一块自绘的分时 / 日 K 走势图（无第三方图表库）。
+**已收口（留证，别再当缺口读）**
+
+- 3.0x 动态字体溢出已修（2026-11-05）：详情弹层两个 Row 原本右溢 283 / 940 px、
+  订阅弹层右溢 155 px，现在 0 溢出且 **0 截断**（逐条 `didExceedMaxLines` 与
+  `FittedBox` 缩放比断言）。两条 skip 已移除，见 二·二十六。
+- A05 / A10 已完成（2026-11-05）：小字对比度从 1.94:1 提到 **≥4.71:1**，八宫格补了
+  方向词。代价是调色板与弹层面板不透明度都改了，见 二·二十五。
+- 「快照 / 实时」判定已改为看时间戳（2026-11-05）：`QuoteSource.snapshot` 全仓库零构造点，
+  页脚曾永远说「实时推送」；现在按 `isStale(quote, now)` 判定，见 二·二十七 / 二·二十八。
+- **视觉基线与截图是两套东西**：`test/preview/goldens/*.png` 是 5 张基线（390×844，
+  进 `flutter test` 门禁）；`docs/preview/*.png` 的旧图是 iTick 时代的历史截图
+  （含「3 / 3」「实时推送」等已不存在的文案），只作历史对照。两者不要互相覆盖。
+- 二 里折叠的 2026-11-02 旧目录树、二·六 功能清单、九 的验证表都带校正说明，
+  读的时候先看节首那句「现在实际是什么」。
+- **构建入口已合并**（2026-11-07）：`tool/build_apk.sh` 是唯一入口（默认不混淆、
+  自动跑 `verify_apk.py`）；根目录 `build_apk.sh` / `build_apk.cmd` 改成
+  「打印提示 + `exit 1`」的废弃壳，走错门会当场失败，见 二·三十九。
+
+**架构一句话**：单 `StatefulWidget` + 每只股票一个 `ValueNotifier<Quote>` 做局部刷新，
+没有状态管理库、没有后台保活、没有前台服务。`QuoteFeed` 接口在上、`PollingSource` 协议在下，
+换源只改一处装配（见 二·九）。默认自选 5 只（A 股 3 + 港股 1 + 美股 1），上限 30。
 
 切到公开源之前的形态是一条 iTick WebSocket + REST 收盘快照。**这套代码已于 2026-11-04
 整体删除**（「移除 iTick 通道」），下文 二·九 / 二·十一 里「保留 iTick，随时能切回」
 的说法已不成立，仅作历史记录。当时的树摇证据见 **十、release 包里已经没有 iTick**。
+
+---
+
+# 开发日志（2026-11-02 起，按时间顺序）
+
+> 以下每一节都是当时的工作记录：**先有问题、再有实测、最后才是改法**。
+> 保留它们是为了记住「为什么这么写」，不是为了描述现状。
+> 与源码冲突时，一律以源码和上面的「现状与已知缺口」为准。
 
 ## 一、iTick 协议事实（历史资料：通道已删除，不可切回）
 
@@ -111,12 +207,43 @@ REST（`/stock/quote`、`/stock/list`）那侧的实测事实——**没有批�
 
 ## 二、目录结构
 
+**当前实际结构（2026-11-07）**
+
+```
+supermarket/
+├── lib/                       50 个文件 / 12.3k 行
+│   ├── main.dart
+│   ├── config/                app_config（订阅默认值、轮询参数）、app_dependencies（唯一装配点）、app_theme
+│   ├── models/                quote、kline
+│   ├── pages/                 quote_list_page（唯一页面）
+│   ├── services/              quote_feed（接口）/ polling_quote_feed（轮询内核）/ kline_loader / rest_client
+│   │   └── source/            polling_source（协议接口）+ sina_source / tencent_source（报价）
+│   │                          kline_source + sina_kline / tencent_kline（K 线）
+│   │                          symbol_search + eastmoney_suggest（搜索）
+│   │                          symbol_catalog / *_sources / *_searches（目录与装配）
+│   ├── utils/                 时段、交易日、格式化、帧率、生命周期、日志、探针
+│   ├── widgets/               quote_tile / quote_detail_sheet / kline_chart / watchlist_sheet
+│   │                          glass / glass_rim（材质）、taiji_mark、market_session_badge、hit_target
+│   └── preview/               widget_previews（golden harness 的包装）
+├── test/                      57 个文件 / 11.5k 行；preview/goldens 5 张基线
+├── tool/                      真网探针（polling / kline / search / hk / us）、build_apk.sh、verify_apk.py、pngdiff.py、measure_frames.sh
+├── docs/                      PERF-* / ROADMAP-* / review-* / dep-liquid-glass / preview（真机截图）
+└── android/                   applicationId=app.supermarket；keystore 不入库
+```
+
+读代码的三个入口：`config/app_dependencies.dart`（谁装配谁）、
+`services/quote_feed.dart`（页面只认这个接口）、
+`services/source/polling_source.dart`（协议细节）。
+
+<details>
+<summary>2026-11-02 初始结构快照（历史，树里很多文件已不存在）</summary>
+
 > ⚠️ 以下是 2026-11-02 的**初始结构快照**。此后经历「切公开源 → 移除 iTick →
 > 全面更名 super_market」等多次删改，树中大量文件已不存在（`quote_ws_service.dart`、
 > `quote_parser.dart`、`support/mock_source.dart`、旧位置的 `tool/preview/app_preview_test.dart` …），
 > 也未列出后加的 `hit_target.dart` / `lifecycle_pause.dart` / `taiji_mark.dart` 等。
 > 视觉 harness 已重建，位置改为 `test/preview/app_preview_test.dart`（见 二·五）。
-> **以 `lib/`、`test/`、`tool/` 实际目录为准**；保留此树只为记录当时的分层思路。
+> 保留此树只为记录当时的分层思路。
 
 ```
 super_market/
@@ -208,6 +335,8 @@ super_market/
         └── market_session.dart          # ★ A 股 / 港股时段判断 + 订阅并集（纯函数）
 ```
 
+</details>
+
 ## 二·五、视觉：液态玻璃（Liquid Glass）
 
 | 首页（收盘后：价格来自快照） | 有行情的卡片 | 行情详情弹层 | 订阅管理 |
@@ -217,14 +346,13 @@ super_market/
 
 <img src="docs/preview/icon.png" width="96" alt="App 图标" align="right">
 
-App 图标（右图）：**白底负空间虎鲸**——白色圆底 + 海蓝（`#2F86D6`）鲸鱼
-剪影，眼斑/腹月牙/嘴线全部是**镂空负空间**（透出白底），整个图标只有两种
-颜色。对齐用户提供的参考 logo（白底 + 蓝鲸 + 白色负空间）与 DeepSeek 的
-极简语言；48px 下剪影与镂空全部可辨。
+App 图标（右图）：**白底负空间虎鲸**——白色圆底 + **纯黑**鲸鱼剪影，
+眼斑 / 腹月牙 / 嘴线全部是**镂空负空间**（透出白底），整个图标只有两种颜色。
+用户原话「把蓝色变成黑色」：纯黑压在白底上是 21:1，48px 下剪影与镂空仍全部可辨。
 
 演进轨迹：白色 W 矢量 → 幽灵鲨（红底）→ 红底虎鲸 → 深蓝虎鲸 → 海蓝渐变
-虎鲸（多色分层）→ **白底负空间虎鲸（当前）**。图标由
-`tool/icongen/IconGen.java`（Java2D）渲染，`tool/icongen/regen.sh`
+虎鲸（多色分层）→ 白底蓝虎鲸 → **白底黑虎鲸（当前，2026-11-05 定稿）**。
+图标由 `tool/icongen/IconGen.java`（Java2D）渲染，`tool/icongen/regen.sh`
 一条命令重生成全部 6 个资源；几何与配色的取舍（含尾巴的七轮迭代记录）
 都写在生成器的类注释里。
 
@@ -445,17 +573,17 @@ refresh: 投票 120Hz fixed=false -> 120.00001Hz (modeId=1) ← 开始滑动
 
 判定按**订阅市场的并集**（`MarketSession.ofRegions`，与太极同口径）：纯 A 股自选
 15:00 收盘，混合 A+H 时港股交易到 16:10，A 股 15:00 后角标仍写「交易中」；
-11:30–12:00 A 股午休但港股早市未收，也写「交易中」。只有全部订阅市场都休市
-才写「已收盘」。详见 **二·二十九**。
+11:30–12:00 A 股午休但港股早市未收，也写「交易中」。「已收盘」要求所有订阅市场
+今天都开过市且都已收盘；全部是周末 / 法定节假日时写「休市」。详见 **二·二十九 / 二·三十八**。
 
 为什么需要它：行情只在有成交时变化，收盘后价格自然不动。如果界面只写「已连接」，
 看到价格静止会以为卡死；写清时段才是对静止数据的正确解释。
 角标自己持有 30s 定时器，只在时段真的跨过边界时才 `setState`，不牵连列表；
 订阅列表一变（例如刚加了一只港股）`didUpdateWidget` 当场重判，不等定时器。
 
-> ⚠️ 已知限制：只判断「工作日 + 时段」，**没有接法定节假日日历**。
-> 春节、国庆这类工作日休市会显示成「交易中」。这属于课程范围之外的数据源（需要交易日历接口），
-> 需要的话在 `AppConfig` 里加一张节假日表，改 `MarketSession.of()` 一处即可。
+> ✅ 法定节假日与半日市由 `lib/config/market_holidays.dart` 覆盖（2026–2027，见 二·三十八）：
+> 春节、国庆这类工作日休市返回「休市」，不再显示「交易中」；港股除夕 / 圣诞前夕 /
+> 新年前夕与美股感恩节次日 / 平安夜按半日市收盘。表外年份自动退回旧口径。
 
 ## 二·七、订阅管理（换股票不用改代码）
 
@@ -1867,7 +1995,7 @@ A RenderFlex overflowed by 16 pixels on the right.
 **已知边界（没做，别当成已覆盖）**
 
 - 法定节假日、港股半日市（圣诞/新年/农历除夕 12:00–12:10 收市）仍需交易日历，
-  `market_session.dart` 只判断「工作日 + 时段」；
+  `market_session.dart` 只判断「工作日 + 时段」；→ **2026-11-07 已补齐，见 二·三十八**；
 - ~~卡片「快照」/ 详情「收盘快照」按 `quote_freshness.dart` **只看数据有多旧**，
   不看时段。~~（可见角标已随 二·三十二 移除；详情页脚的「轮询更新 ↔ 只留来源」
   翻转仍按同一判定。）盘中/收盘的观感由页头交易时段角标统一交代。
@@ -2011,12 +2139,14 @@ detail/detail-daily 都出现），差异 0.63%–1.54% 且均为角标/页脚�
 | `utils/market_session.dart` | `MarketSession.ofUs`（DST 折算 + 美东周末）；`ofRegions` 加 US 分支；太极 `_anyLive` 同步（角标/太极自动跟随并集口径） |
 | `widgets/kline_chart.dart` | `tradingMinutesOf/tradingMinute` 加 `us` 参数（390 分钟连续无午休）；刻度 09:30/12:45/16:00（美东挂钟）；`_KlinePainter` 穿 `us` |
 | `widgets/quote_detail_sheet.dart` | 成交额标签 `USD` |
-| `tool/us_live_probe_test.dart` | 探针固化为 6 条真网断言（走解析器，报文变了先红） |
+| `tool/us_live_probe_test.dart` | 探针固化为 7 条真网断言（新浪字段/混批、腾讯 K 线、东财批量与对价、腾讯不支持美股；走解析器，报文变了先红） |
 
 ### 已知限制（都写死在代码注释与这里）
 
-1. **美股报价只有新浪一家**（用户拍板砍掉腾讯 ifzq qt 块备路）；新浪挂时 A/H 正常切腾讯、
-   美股卡保持最后快照（腾讯混批实测 A/H 照常、美股静默缺失，不会拖垮整批）；
+1. ~~**美股报价只有新浪一家**（用户拍板砍掉腾讯 ifzq qt 块备路）；新浪挂时 A/H 正常切腾讯、
+   美股卡保持最后快照。~~ **2026-11-07 已补**：东财 `push2.eastmoney.com` 批量美股报价
+   （`EastmoneyUsSource`）只在主链拿不到美股时出手。有它之后，混合订阅也能正常切到腾讯
+   （A/H 换源、美股继续），不再是「原地退避」——见 二·四十；
 2. **美股 K 线只有腾讯一家**（新浪 `gb_` 无数据）；**详情页规则（2026-11-05 用户拍板）：
    走势不可用就直接不显示**——美股详情页默认打开日 K（唯一稳定可用），「分时」tab
    不渲染（收盘时段必空，不给注定失败的入口）；日 K 也拿不到时整个走势区块收起，
@@ -2025,7 +2155,8 @@ detail/detail-daily 都出现），差异 0.63%–1.54% 且均为角标/页脚�
 3. **AMEX、优先股、ETF、债票据、权证、多类股（BRK.B / BRK_B）搜不到**——三道闸故意挡的，
    它们在现有免费源上出不了数；
 4. 手输代码兜底不支持美股（交易所无法从代码推断），美股添加只能走搜索；
-5. 美股法定节假日无交易日历（与 A/H 同一已知限制），节假日会显示「交易中」；
+5. ~~美股法定节假日无交易日历（与 A/H 同一已知限制），节假日会显示「交易中」；~~
+   **2026-11-07 已补齐（二·三十八）**：NYSE 假期 2026/2027 + 两个提前收市日；
    夏令时起止日按美东挂钟判定，北京时间 3 月 / 11 月换制日凌晨各有一小时歧义，
    远离时段边界、无实际影响。
 
@@ -2095,7 +2226,85 @@ golden 永远对不上。改成三道宽度/透明度递减的硬边描边，阶
 
 卡片的真实折射由 premium 着色器负责（`flutter_tester` 无 Impeller，golden 里
 看不到，只能真机走查）。`page.png` 改前改后**逐字节相同**，可以确认参数没有
-波及降级路径。
+波及降级路径（v10 时 premium-only 参数不影响降级路径）。
+
+### 卡片再加一档：v20（2026-11-07）
+
+> ⚠️ **已被 v21 整组撤销**：白纱 / 霜 / 模糊是磨砂玻璃方向，用户要的是
+> **透明玻璃**。以下保留作版本史，别照着它调。
+
+用户反馈「玻璃效果再明显点」。v10 的透明片在静止画面里与背景几乎同色，
+所以这一版沿**同一条路线**整体推一档，不换设计语言：
+
+| 分组 | 改动 | 为什么 |
+| --- | --- | --- |
+| 卡身 | `glassColor` 全透明 → 4% 白、`frostOpacity` 0 → 0.16、`blur` 0.6 → 1.2 | 给玻璃一点「体」：背景在卡内被轻轻糊一下，卡内外才读得出隔着一层。白纱是保亮度 tint，不洗白 |
+| 边缘光学 | `refractiveIndex` 1.55 → 1.60、`thickness` 44 → 48、`fresnelStrength` 0.9 → 1.1、`rimLight` 0.75 → 0.9、`edgeAbsorption` 0.18 → 0.22、`chromaticAberration` 0.55 → 0.65 | 折射、轮廓反射、暗部、彩边一起加一档，斜向受光更明确 |
+| 降级路径 | `glowIntensity` 1.0 → 1.2、`saturation` 1.5 → 1.6 | 无 Impeller 的设备/golden 里也能看见边缘光；补白后颜色不发灰 |
+
+守住的线没动：`lightIntensity = 0`（横贯上下边的白带）、`rimLight < 1.0`
+且光轴仍是左上 3π/4（满强度变白描边）、`thickness < 56`（v9 亮边白带）、
+`bodyShade = 0`（0.3 变灰塑料）。参数仍只在 `lib/widgets/glass.dart` 的
+`kGlassSurface` 一处，回退就是恢复这一整块。
+
+真机走查（OPPO PLJ110）：同源 A/B 两版 release 各装一次、同角度截图，
+卡片区域 22.8% 像素有 >2/255 变化、空白背景 **0 变化**——变化只落在卡片，
+斜向受光的亮边与背光侧的暗部更厚，没有变成整条白带或白雾。
+`flutter_tester` 无 Impeller，这套光学在 golden 里看不到。
+
+### 改回透明玻璃：v21（2026-11-07 用户拍板）
+
+用户明确「玻璃要是透明玻璃」。v20 的 4% 白纱 + 0.16 霜 + blur 1.2 是
+**磨砂玻璃**方向，整组撤销；回到「加色项全清零、只留光学形变」，并把材质
+声明切到包里真正的 clear 档：
+
+| 类别 | v20 | v21 |
+| --- | --- | --- |
+| 卡身 | 4% 白纱 / 0.16 霜 / blur 1.2 / saturation 1.6 | `glassColor` 全透明、`frost: 0`、`frostOpacity: 0`、`blur: 0`、saturation 1.5 |
+| 合成 | 默认 `adaptive`（Apple **Glass.regular**，保亮度归一化，会把卡身整体提亮） | `GlassBodyMode.clear`（包注释原话 "matches Apple's **Glass.clear**"），按 alpha 直接合成，specular / Fresnel / rim 物理照旧 |
+| 边缘光学 | 折射 1.60 / 厚度 48 / 菲涅尔 1.1 / rim 0.9 / 吸收 0.22 / 色散 0.65 | 1.64 / 52 / 1.25 / 0.95 / 0.26 / 0.7 —— 卡身不给「体」了，玻璃感全靠这一圈 |
+
+红线照旧：`lightIntensity = 0`、`rimLight < 1.0` 且光轴左上 3π/4、
+`thickness < 56`、`bodyShade = 0`。顺带省掉 premium 的 frost / blur 两个 pass。
+
+**真机定量（OPPO PLJ110）**：卡内空白 `#F0EEE8` vs 页面背景 `#F0EEE9`，
+差 **1~2/255**——卡身原样透出背景，只有边缘一圈被弯折 / 提亮 / 压暗；
+卡片之间的 `#E3E1DB` 是投影（比背景暗 13），不是白膜。看起来「白」是
+边缘高光 + 投影的对比错觉。v20→v21 卡身中心只有 0.07% 像素变化、边缘带
+74% 变化，印证改动只落在边缘。`bodyMode` 切 clear 在真机上逐像素零差异
+（`glassColor` 本就为 0），属于语义对齐 / 防以后误加 tint 的声明。
+
+⚠️ **副作用**：详情弹层共用 `kGlassSurface`，透明化后背后的列表文字会透进
+面板（真机可见「神火股份 / 25.26」等浅色鬼影）。弹层已有 93% 底色膜，
+主文字仍清晰；按既有架构决策「可读性由底色膜兜住，不改卡片材质」，没有
+为了压鬼影去动材质。以后要收紧只需调 `quote_detail_sheet.dart` 那层
+`alpha: 0.93`。
+
+`flutter analyze` 0 issue、`flutter test` **414 全绿**；4 张弹层 golden 随
+`bodyMode` 重生成（真机零差异，差异只在降级路径）。
+
+### v22 尝试已回退（2026-11-07）
+
+曾把 `rimShade` / `rimShadeEnds` / `edgeAbsorption` / `shadow` /
+`shadowElevation` 全清零来消除灰边，真机采样确认灰边确实消失，但用户反馈
+「变成白边了，没有了边缘折射，没有了玻璃感」，因此**整体回退到 v21**。
+
+留下根因备查：premium 折射是 `texture(uBackgroundTexture, uv + displacement)`
+采样**背景纹理**做 UV 弯折，而 `kSolidBackground = true` 把背景画成单一实色
+`#F0EEE9`，位移后采到的颜色完全相同，折射在视觉上并不存在。边缘之所以可见，
+靠的是「加色亮部 + 减色暗部」的对比；清掉暗部就只剩加色项，必然是白边。
+要「既无灰边、又有折射」，前提是背景有可折的明暗/色相起伏——属于背景设计
+取舍，不是调 `kGlassSurface` 能解决的。详见 `lib/widgets/glass.dart` 的 v22 节。
+
+### 顺带修正：过期的 golden 基线
+
+改参数后预览门禁 5 张 golden 全挂。做了一次同源 A/B（把 `glass.dart` 还原成
+HEAD 再 `--update-goldens`）：**卡片参数在降级路径逐像素零差异**，说明失败的
+不是这次调参，而是基线本身过期——底部空白背景还停在旧的冷灰渐变
+[215,214,219]，当前代码画的是实色 #F0EEE9 [240,238,233]。查提交史，
+`page.png` 最后一次更新停在 fb6933e，e8221a7「背景实色化与色号定稿」只
+重生成了另外 4 张、漏了它；其余 4 张也随后续弹层结构改动一起过期。
+本次把 5 张基线统一重生成到当前代码，卡片区域本身未变。
 
 ### 验证与代价
 
@@ -2182,22 +2391,182 @@ golden 重生成且两遍 md5 一致。真机走查项：键盘弹出时玻璃�
 （`page/scroll` 逐字节不变）。真机走查项：再次安装验证打开详情的帧率。
 
 
+## 二·三十八、交易日历：春节不再显示「交易中」（已完成，2026-11-07）
+
+**问题**：`MarketSession` 只判「工作日 + 时段」，2026-02-17（周二，春节）10:00
+会返回「交易中」。这是用户打开 App 第一眼就能看到的错话——行情确实不动，界面却
+说在交易，比任何性能问题都伤体验。
+
+**数据算不出来，只能抄**：A 股调休由国务院逐年拍板（2026 年春节 2/15–2/23、
+国庆 10/1–10/7），港股佛诞/重阳跟农历，美股还有「周六的独立日提前到周五」这类
+observed 规则。所以做成一张**手写表**，每年补一次，不引外部接口、不加网络依赖。
+
+| 市场 | 依据 | 2026 | 2027 |
+| --- | --- | --- | --- |
+| A 股（SH/SZ 同表） | 上证公告〔2025〕45 号；2027 按国办发明电〔2026〕10 号推导（待交易所 12 月通知复核） | 18 天 | 17 天 |
+| 港股 | 港交所《2026 年香港证券市场假期》通告 / 2027 年假期表 | 14 天 + 3 半日 | 13 天 + 3 半日 |
+| 美股 | NYSE《Holidays & Trading Hours》 | 10 天 + 2 半日 | 10 天 + 1 半日 |
+
+**三个设计决定**（原文都写在 `lib/config/market_holidays.dart` 头注释里）
+
+1. **键用 `20260217` 这样的整数，不用 `DateTime`**。`DateTime` 没有 const 构造器，
+   装不进 const 表；更要命的是它带时分秒——`DateTime(2026,2,17,10,0)` 与
+   `DateTime(2026,2,17)` **并不相等**，拿带时刻的时间查表会静默漏掉。整数键只看
+   年月日，把这类错误从「运行时偶发」变成「不会发生」。
+2. **只收周一到周五**。周末在 `MarketSession` 里先判掉；表里塞周末既没用，又给
+   「抄错一天」多开一扇门。`market_holidays_test.dart` 有一条不变量守它。
+3. **A 股一张表**。沪深休市安排逐字相同，分两份存只会各自漂移；未知市场（老报文
+   没有 `r` 字段）也落回这张表，与 `tradingDayOf` 的口径一致。
+
+**判定改动**（`market_session.dart` 一处，三个入口同构）
+
+| 入口 | 新增行为 |
+| --- | --- |
+| `of` / `ofHk` / `ofUs` | 周末之后、时段之前查表；命中返回 `holiday('休市')`，整天都是「休市」——盘前不写「未开盘」，收盘后不写「已收盘」 |
+| 美股 | 先折算**美东挂钟再查表**：北京 11/27 01:00 = 美东 11/26 12:00，还是感恩节 |
+| 半日市 | 港股 12:10 收盘（含 12:00–12:10 收市竞价）、美股 13:00 ET；只改收盘时刻，不改时段形状（半日市没有午休） |
+| `ofRegions` | 「全部休市」从「全是 weekend」放宽到「全是 rest day」，有一处 holiday 就报「休市」；A 股休市 + 港股照常仍报「交易中」 |
+
+**为什么文案还是「休市」**：对用户来说周末和节假日是同一件事——今天没有行情。
+新造「节假日休市」会让页头那行 11px 文字变长，收益只是分类癖。枚举值仍然分开，
+因为并集逻辑和测试需要区分「今天本来就不开市」和「今天开过市、已经收盘」。
+
+**先红后绿**：新测试先落地 → `Undefined name 'MarketHolidays'` 整片编译红；
+补表与判定后两个测试文件 **47 条全绿**。最关键的一条 `MarketSession.of(2026-02-17 10:00)`
+在修复前实际返回 `trading`，现在是 `holiday`。
+
+**门禁**：`flutter analyze` 0 issue；全量 `flutter test` 全绿。golden 的时钟钉在
+2026-11-05 15:05（周四，三市场都不休市），像素零变化。
+
+
+## 二·三十九、构建入口合并：根目录旧脚本改成「废弃壳」（已完成，2026-11-07）
+
+**问题**：根目录 `build_apk.sh` / `build_apk.cmd` 与 `tool/build_apk.sh` 并存，
+前者开 `--obfuscate`、不跑 `verify_apk.py`、不设国内镜像。误用的代价不是体积，
+而是**崩溃栈变成 `a.b.c()`、且这个包没人校验过**——正好和「个人自用、要看崩溃栈」
+的目标相反。
+
+**做法**：只留一个入口，混淆变成显式开关（默认关）。
+
+| 文件 | 现在 |
+| --- | --- |
+| `tool/build_apk.sh` | 唯一入口。默认 `--release --target-platform android-arm64 --split-debug-info=build/symbols` + `verify_apk.py`；`--obfuscate` 显式开启；`--help` 正常退出、未知参数 exit 2；Flutter 不在 PATH 时自动退到本机路径 |
+| 根目录 `build_apk.sh` | 打印「已废弃 + 指路」后 `exit 1`，**不再调用 flutter** |
+| 根目录 `build_apk.cmd` | 同上（`exit /b 1`）——Windows 那条路也一起堵掉，否则同样的坑换个壳还在 |
+
+**顺手修的两处文档漂移**
+
+1. 第十节参数表写 `--split-debug-info=build/debug-info`，而 `tool/` 脚本实际写
+   `build/symbols`——以脚本为准，文档已改（同一个概念两个目录，正是这次要消灭的混乱）；
+2. 文档里「真要开混淆」的示例是手敲 `flutter build apk ...`，照抄会漏掉校验与镜像，
+   已改成 `./tool/build_apk.sh --obfuscate`。
+
+**验证**（都实跑过）：`bash build_apk.sh` → exit 1 且没碰 flutter；`--help` → exit 0；
+`--bogus` → exit 2 + 用法；完整构建一次 → **7.91 MB / `8 289 399` 字节**，
+`verify_apk.py` 全绿（单 arm64、targetSdk 37、R8 生效、数据源齐全、iTick 已树摇）。
+
+> `pubspec.lock` 的来源地址也一并定成镜像（`pub.flutter-io.cn`）：只改 47 处
+> `url:`，**版本一个没动**——`pub get` 顺手解析出的 `code_assets 2.1.0→2.2.0`、
+> `objective_c 9.6.2→9.6.3` 已回退，不算这次改动。两侧都验过稳定性：设镜像跑
+> `pub get` 不改锁；不设镜像跑 `analyze` / `test` / 构建也不改锁（包已在缓存里，
+> pub 不会重解析）。只有换一台没缓存、又没设镜像的机器才会被改回 pub.dev。
+
+> 附带复测了混淆的真实收益：同一份源码，默认包 `8 289 399` B（`libapp.so` 4.44 MB），
+> `--obfuscate` 包 `8 260 727` B（`libapp.so` 4.31 MB）——**只省 28 672 B ≈ 0.03 MB**。
+> 合并前那批 7.88 MB 的包（v11/v21/v22…）`libapp.so` 全是 4 522 888 B，与这次混淆包
+> 逐字节同尺寸：它们**本来就是混淆包**（根目录旧脚本产的），只是没人注意到。
+>
+> 另一个容易误判的点：Flutter 3.47 的 `--obfuscate` **不再产出 `.map.json`**——
+> `genSnapshot` 只传 `--obfuscate` 与 `--save-debugging-info`
+>（`flutter_tools/lib/src/base/build.dart:238-246`）。判断一个包混没混淆别看有没有
+> map 文件，看 `libapp.so` 里的符号名：混淆后 `QuoteTile` 这类标识符会消失。
+
+
+## 二·四十、美股报价补位：先找源，找不到才谈降级（已完成，2026-11-07）
+
+**问题**：美股报价只有新浪一家。新浪挂掉时 A/H 能切腾讯，美股卡只剩最后一张
+快照。更糟的是切换规则——备源必须覆盖**全部**订阅市场，而腾讯没有美股，所以只要
+自选里有一只美股，**整个主备切换都是失效的**，新浪挂了只能原地退避。这不是
+「美股降级」，是「所有市场一起没有兜底」。
+
+**先按优先级找源**（全部是真网探针，不是看文档）：
+
+| 候选 | 实测结果 | 结论 |
+| --- | --- | --- |
+| 腾讯 `qt.gtimg.cn` | `v_pv_none_match` | 不可用（复测仍是） |
+| 腾讯 `web.ifzq` 报价控制器 | 试了 `UsQuote` / `usstock` / `us` 三个名字，全报 `Can't load controller` | 这三条路不存在（不能证明没有别的路径） |
+| 腾讯 ifzq K 线里的 `qt` 块 | **有完整美股报价**，与新浪同价；但一只票要发一次 K 线请求 | 能读、不能批量，弃 |
+| 东方财富 `push2.eastmoney.com` | **批量可用**：`secids=105.AAPL,106.BABA` 一次全回 | **采用** |
+| 雪球 `stock.xueqiu.com` | 没探（已知要匿名 cookie） | 没走到这一步（东财已够） |
+
+**对价证据**（2026-11-07 同一时刻）：AAPL 东财 342.37 / 昨收 344.17 / -0.52% /
+量 44 703 806 / 额 153.24 亿 USD；新浪 `gb_aapl` 逐字段相同（成交额差 0.0002%）。
+`fltt=2&invt=2` 让服务端直接返回小数——不带它价格是 342370，「除 100 还是 1000」
+只能猜，这正是最该避免的一类协议猜测。
+
+> 时间戳口径不同：新浪 `gb_` 的 `[3]` 是**页面刷新时间**（收盘后仍往前走），东财
+> `f124` 是**最后成交时刻**。真网实测同一天：新浪 09:14（刷新）vs 东财 05:00（收盘），
+> 价格同为 342.37。切源瞬间补位报价可能被「防倒退棘轮」判成更旧而丢一轮，等下一次
+> 成交自然恢复——让价格不倒退，比早几百毫秒更新更重要。
+
+**架构：补位腿，不是第三个主备内核**
+
+`PollingQuoteFeed` 新增 `regionBackup`（`EastmoneyUsSource`）。每轮三步：
+
+1. 主链按 `markets` 问自己覆盖的标的（腾讯只有 A/H，新浪是全部）；
+2. 主链不覆盖的（腾讯没有美股）**加上**主链这轮漏掉的（新浪偶发少一行），
+   交给补位源补一次；
+3. 两腿合并后走原来的「防倒退棘轮」与回调。
+
+三个刻意的决定：
+
+| 决定 | 理由 |
+| --- | --- |
+| 补位源**不参与**主备轮转 | 它只管一个市场，失败不该触发整体切源；主链健康度只由主链自己决定 |
+| 正常路径**零额外请求** | 新浪把美股也拿全时不发东财请求（测试钉住 `calls == 1`） |
+| 覆盖判定**包含**补位源 | 腾讯 + 东财 = 覆盖全市场，混合订阅终于可以切源；否则「有备源」只是纸面说法 |
+
+**「补位也挂了」不能静默**：连续 3 轮失败后，`lastError` 写「东方财富（备用源）
+连续失败，它负责的标的会停在旧价」，复用已有的红条 + 重试。主源失败但补位有价时，
+**先推价再记失败**——美股不跟着 A/H 一起冻结。若补位把**全部**订阅标的都补齐了
+（例如只订阅美股），状态按「有数据」算（connected、不弹红条），但失败次数照常累计，
+该切源还是切；补不齐时状态仍是「重连中」并把缺口说出来。
+
+**没做降级角标**：原计划的「!」图标 / 「数据可能延迟」页脚不需要了——源找到了。
+页脚 `sourceLabel` 仍只写主链（切到腾讯时不会写东财），这是已知的表述边界：
+标签标的是主链，美股可能来自补位源。
+
+**先红后绿**：新增 6 条 feed 契约 + 5 条东财解析测试。最关键那条「主源连续失败 →
+切到腾讯、美股继续」：临时摘掉 `regionBackup` 再跑，红在 `feed.sourceLabel`
+（仍是「新浪财经」）——旧行为的原地退避，正是这条要防的回归。
+
+**门禁**：analyze 0；全量 test **456 条**全绿（CI 口径 449）；真网探针 7 条全过；
+`verify_apk.py` 增加 `push2.eastmoney.com` 与 `ulist.np` 两条断言，重打后
+7.91 MB / `8 298 963` 字节（`libapp.so` 4.44 → 4.50 MB，就是补位源的代码量）。
+
+**真机**：2026-11-07 10:56 `adb install -r` 覆盖安装（vc35 → 同版本重装，
+`lastUpdateTime` 10:56:52），`am start -n app.supermarket/.MainActivity` 后列表
+正常渲染、无红条、无崩溃日志；与此前 09:13 的 v21 截图逐块对比，只有时钟与状态栏
+不同。补位路径当轮没触发（新浪正常），所以 release 日志里看不到「补位」——
+`AppLog.i` 在 release 本来就不输出，`w` 只在失败时出现。
+
+
 ## 三、跑起来（3 步）
 
 ### 1. 不需要 flutter create
 
-`android/` 骨架已经在项目里了（`applicationId = com.example.super_market`），
-直接进目录执行第 3 步即可。只有想换包名/重生成平台目录时才需要：
+`android/` 骨架已经在项目里了（`namespace` / `applicationId` = `app.supermarket`，
+`android/app/build.gradle.kts`），直接进目录执行第 3 步即可。只有想换包名/重生成平台目录时才需要：
 
 ```bash
-# 仅在需要重新生成平台目录时执行（会覆盖 android/）
-flutter create --platforms=android --org com.example --project-name super_market .
+# 仅在需要重新生成平台目录时执行（会覆盖 android/，包名要再手工改回去）
+flutter create --platforms=android --org app --project-name super_market .
 ```
 
 如果你已经有一个空的 Flutter 工程，也可以只把本项目的 `lib/`、`pubspec.yaml`、
 `analysis_options.yaml` 覆盖过去（`android/` 用你自己的）。
 
-### 2. 不需要 Token（默认源：新浪主 + 腾讯备）
+### 2. 不需要 Token（默认源：新浪主 + 腾讯备 + 美股东财补位）
 
 这一版默认走公开免费源，**不填任何 Key 就能跑**：iTick 通道已整体删除，
 `AppConfig.token`、凭证提示条与 `_QuotaCard` 都不在代码里了。
@@ -2216,7 +2585,8 @@ flutter pub get && flutter run       # 到此就有价格了
 >
 > 打印 3 轮价格与陈旧毫秒数；加 `PROBE_CATALOG=1` 会顺带拉一遍全量目录（约 70 秒、5000+ 条）。
 
-### 附：切回 iTick 时才需要 Token（对应下面的 2.1–2.4）
+<details>
+<summary>附：切回 iTick 时才需要 Token（历史章节，当前不可执行）</summary>
 
 > ⚠️ **历史章节，当前不可执行**：iTick 通道、`QuoteWsService`、`AppConfig.token`
 > 都已删除，`quote_feeds.dart` 里没有可切换的推送实现。下面 2.1–2.4 仅作历史记录保留，
@@ -2326,6 +2696,8 @@ static const List<StockConfig> stocks = <StockConfig>[
 `region` 只能填 `SH`（沪）/ `SZ`（深），代码填纯数字，**不要带 `.SH` / `.SZ` 后缀**，前导零必须保留。
 服务端按 `code$region` 组装，`AppConfig.subscribeParams` 会自动拼成一条逗号分隔的字符串。
 
+</details>
+
 > 网络权限：`android/app/src/main/AndroidManifest.xml` 里已经加了
 > `<uses-permission android:name="android.permission.INTERNET"/>`（release 包也够用）。
 
@@ -2334,7 +2706,7 @@ static const List<StockConfig> stocks = <StockConfig>[
 ```bash
 flutter pub get
 flutter analyze        # 实测：No issues found!
-flutter test           # 实测：All tests passed!（204 个用例）
+flutter test           # 实测：413 通过（--exclude-tags preview；全量 420，含 5 张 golden）
 flutter run            # 连真机或模拟器（需要 Android SDK）
 ```
 
@@ -2364,7 +2736,7 @@ flutter run            # 连真机或模拟器（需要 Android SDK）
 | `QuoteParser` 顶部字段常量 | `s / r / ld / ch / chp / p / t / type` 均取自官方 quote 示例。若后续字段调整，只改这一段。 |
 | `QuoteParser._timeKeys` | 官方 quote 的 `ts` 是**交易状态**（0~3），不是时间戳。代码把它放最后，并靠时间范围（2000~2100）校验过滤掉小整数。 |
 | `QuoteParser._entries()` | 文档示例里 `data` 是单个对象；实际也可能收到数组或按代码分组的对象，三种都兼容，但**未实测多股合并推送**。 |
-| `MarketSession.of()` | 只判断工作日 + 时段，**未接法定节假日日历**；春节/国庆会显示成「交易中」。补一张节假日表即可修好。 |
+| `MarketHolidays` | 表是手写的，每年补一次：2027 年 A 股按国办发明电〔2026〕10 号推导，交易所正式通知（一般 12 月发布）后**要复核一遍**；2028 年起需补表，否则节假日重新显示「交易中」（过期测试会先红）。 |
 | `SinaSource._status()` | 状态码 `00` 实测为正常交易；`01`/`02` 是按经验映射的停牌/退市，**未逐条验证**。其余取值一律 `unknown`，不猜。 |
 | `SinaSource.batchQuoteUri()` | 30 只一次请求实测 OK（7.7KB），再往上没试。`AppConfig.publicSourceMaxStocks = 30` 是「验证过的上限」，不是「服务端上限」。 |
 | 腾讯目录 `getBoardRankList` | 只做备份内核的目录兜底，实际没完整跑过（主力能拉就不走它），`count=200` 是保守值。 |
@@ -2423,10 +2795,10 @@ REST 快照 → QuoteSnapshotClient.fetch → shouldApplyQuote(旧, 新) 为真�
 | --- | --- |
 | `flutter pub get` | 成功（当前依赖见 `pubspec.yaml`；`web_socket_channel` 已随 iTick 通道移除） |
 | `flutter analyze` | **No issues found!**（flutter_lints 6.0.0 全量规则） |
-| `flutter test` | **All tests passed!（290 通过 + 0 skip）** 见下表（204 / 216 / 225 / 237 / 243 / 251 / 253 / 264 / 273 / 291 / 294 / 299 是不同历史时点的数字） |
+| `flutter test` | **All tests passed!（420 通过 + 0 skip；CI 口径 `--exclude-tags preview` 为 413）** 见下表（204 / 216 / 225 / 237 / 243 / 251 / 253 / 264 / 273 / 291 / 294 / 299 / 414 / 420 是不同历史时点的数字） |
 | 视觉基线 | **可用**：`test/preview/app_preview_test.dart` 生成/比对 5 张 golden（390×844，二·三十 删掉了 `detail-daily-max`），已进 `flutter test` 门禁。`docs/preview/*.png` 是历史截图，不是基线 |
 | **走势图真网联调** | **已跑通**（2026-11-03 10:38–10:59 盘中）：新浪日线 10 根（末根 11-02，**不含当日**）、新浪分时 89 点（09:31→10:59，均价 1446.053）、腾讯日线**含当日**、腾讯分时 90 点（首点量 165000 股＝1650 手×100，差分正确）、上证指数走 `day`。见 `tool/kline_live_probe_test.dart` |
-| **打包产物自检** | `python tool/verify_apk.py` 全绿：单 `arm64-v8a`、targetSdk 37、R8 后 `classes.dex` 954 KB、`FlutterJNI`/`FlutterActivity` 仍在、新浪三项地址 + 腾讯域 + 走势两端点 + 目录总数 + 搜索端点都在 `libapp.so` 里、`api-free.itick.org` / `wss://` 已消失。**最近一次（2026-11-05 09:40，含 A 的三项收尾）**：APK 16.73 MB / `6eda0c27…`，`libapp.so` 4.38 MB；`libapp.so` 里「轮询更新」1 处、「收盘快照」2 处、「实时推送」0 处——正是这一轮改动的证据 |
+| **打包产物自检** | `python tool/verify_apk.py` 全绿：单 `arm64-v8a`、targetSdk 37、R8 后 `classes.dex` 954 KB、传输层禁明文、`FlutterJNI`/`FlutterActivity` 仍在、新浪三项地址 + 腾讯域 + 走势两端点 + 目录总数 + 搜索端点都在 `libapp.so` 里、`api-free.itick.org` / `wss://` 已消失。**v21 玻璃版那次（2026-11-07）**：APK **7.88 MB** / `87709fea…`，`libapp.so` 4.31 MB（`.so` 已改 DEFLATE 存储，体积从 16.59 MB 降到 7.88 MB） |
 | **真实服务端联调（iTick）** | **已跑通**（2026-11-03 07:52，免费档账号）：`连接 → 握手 Header 鉴权 → 认证成功 → 订阅成功（服务端 ack）`，耗时约 1.5s |
 | **真实服务端联调（新浪，现在的默认）** | **已跑通**（2026-11-03 10:17，开盘中）：3 轮轮询价格持续变化，陈旧 2.6–4.0s；全量目录 5223 条 / 68.6s。见 `tool/polling_live_probe_test.dart` |
 | **真实报文与解析对齐** | REST 实测返回字段 `s / ld / p / o / h / l / t / v / tu / ts / type / r / ch / chp`，与 `QuoteParser` 的字段常量**完全一致**（`ts=0` 确认为交易状态而非时间戳） |
@@ -2438,7 +2810,8 @@ REST 快照 → QuoteSnapshotClient.fetch → shouldApplyQuote(旧, 新) 为真�
 | `smoke_test.dart` | ① 改一只股票的 notifier，另一行完全不受影响（`aBuilds == 0`）；② 列表页 3 行 + Token 提示 + 时段角标；③ 点卡片弹出详情且八项指标齐全 |
 | `quote_ws_service_test.dart` | 握手 → 只发一条订阅帧 → 心跳；重放 auth/ack 不重复订阅；收到推送即视为订阅成功；断线 1s 退避重连并**重新订阅**；连上就断时退避继续增长；后台断开且不重连、回前台立即重连；**半开连接 75s 无回包判定死链**；有 pong 不误判；认证/订阅失败不自动重连；脏数据不断连；未配 Token 不建连 |
 | `quote_parser_test.dart` | 官方示例字段映射；`ts` 是交易状态而非时间戳；数组/按代码分组；缺涨跌由昨收推算；字符串数值；秒级时间戳；越界时间戳过滤；depth 忽略；退避序列 1/2/4/8/16/30 |
-| `market_session_test.dart` | 09:15 集合竞价、09:30 开盘、11:30 午休、13:00 复牌、15:00 收盘、周末休市六个边界；**订阅并集 `ofRegions` 的纯 A / 纯 HK / 混合 / 周末 / 空订阅**，以及角标 widget 的「15:30 混合显示交易中」「纯 A 仍已收盘」「加港股当场重判」；`-0.00` 归零；万/亿压缩 |
+| `market_session_test.dart` | 09:15 集合竞价、09:30 开盘、11:30 午休、13:00 复牌、15:00 收盘、周末休市六个边界；**订阅并集 `ofRegions` 的纯 A / 纯 HK / 混合 / 周末 / 空订阅**，以及角标 widget 的「15:30 混合显示交易中」「纯 A 仍已收盘」「加港股当场重判」；**节假日 `holiday`**（A 股春节/国庆、港股佛诞、美股按美东日判感恩节、港股/美股半日市、并集「A 休市 + HK 交易 = 交易中」、角标写「休市」）；`-0.00` 归零；万/亿压缩 |
+| `market_holidays_test.dart` | 表结构不变量：只收工作日、`yyyymmdd` 编码可原样还原、组内严格升序无重复、三市场都覆盖 2026–2027、`lastCoveredYear` 与表一致、**日历过期即红**；抽查交易所原文日期（A 股春节 2/16–2/23 与国庆 10/1–10/7、港股三天半日市、美股 7/3 与 11/27） |
 | `layout_robustness_test.dart` | 360dp + 2.0 倍字体、320dp + 1.5 倍字体都不出现 RenderFlex 溢出；**真实报价**（茅台 1439.10 / 成交额 118.49 亿）也不溢出——高价股 + 大成交额是最容易撑破一行的组合，合成整数测不出来 |
 | `text_scale_test.dart` | 3.0x 下四个界面（列表/行情卡/详情/订阅）零溢出 + 零截断：`didExceedMaxLines` 抓省略号、`FittedBox` 缩放比 ≥0.75 抓「缩回去」；反向红态确认两条断言都会红 |
 | `contrast_test.dart` | 把详情/订阅弹层真渲染出来（`RenderRepaintBoundary.toImage`），逐条取 `Text` 自己的背景像素，断言 ≤13px 文字全部 ≥4.5:1；覆盖正常/停牌两种状态胶囊；WCAG 公式自检（黑白 21:1、同色 1:1） |
@@ -2449,6 +2822,8 @@ REST 快照 → QuoteSnapshotClient.fetch → shouldApplyQuote(旧, 新) 为真�
 
 | `polling_source_test.dart` | 新浪真实报文（深 33 / 沪 34 字段、真 GBK 字节）的价格量额时间；空串与 0 价被跳过；指数 28 字段被跳过；批量多只不串行；腾讯手→股、万元→元；`~~` 空字段不错位；目录按前缀判市场、bj 丢掉；**整页北交所不算翻到头**；**读到 null/HTML 也不当结束**（后两条是真网踩出来的） |
 | `polling_feed_test.dart` | connect 立即拉一轮；3s 才发下一轮；pause 停发、resume 立即补；updateStocks 立即换列表；连续 3 次失败切源（第 4 次请求换域名）；单次失败不切源；切源后更旧的时间戳被丢弃；全都不通时报错并退避；`needsToken == false` / `suppliesSnapshot == true` |
+| `feed_contract_test.dart` | 覆盖契约：备源不覆盖的市场不得被静默丢下；**美股补位**（腾讯当主力 / 新浪漏一行 / 主源连续失败切腾讯 / 补位连续失败要提示 / 主链拿全时零额外请求）；pause 挡住已在途响应；未来时间戳不污染棘轮 |
+| `us_market_test.dart` | 新浪 `gb_` 字段表与混批；腾讯美股写法（NASDAQ→.OQ、NYSE→.N）；腾讯日 K 量是股；**东财补位源**（secid 映射、`fltt=2` 小数口径、字段/时间戳/单位、`-` 与 0 价跳过、diff 为对象、目录不在这里拉）；存档 exchange 往返与 AMEX 挡闸 |
 | `public_source_ui_test.dart` | 默认通道是轮询且不要 Key；主备顺序；公开源不弹凭证提示、不显示配额上限、页脚写轮询节奏；推送源仍显示配额与「实时推送」；切后台 pause、回前台 resume |
 
 > 半开连接那条用例值得单独说：`testWidgets` 的 FakeAsync **只接管 `package:clock` 的 `clock.now()`**，
@@ -2486,23 +2861,43 @@ WebSocket 已建立，等待认证结果
 > 自选超过一屏时的滚动帧率、盘中 3s 跳价时的刷新帧率、能耗 / 长时内存增长等
 > **没有同条件量化基线**，不得声称「更优」。
 
-## 十、构建产物（64 位 · R8）
+## 十、构建产物（64 位 · R8 · .so 压缩）
 
 ```bash
-./tool/build_apk.sh          # 构建 + 自动校验，一条命令搞定
-# 产物：build/app/outputs/flutter-apk/app-release.apk（实测 16.13 MB，仅 arm64-v8a）
+./tool/build_apk.sh          # 构建（产物同时复制为 super market.apk）
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+#       当前实测 7.91 MB（8 298 963 字节，仅 arm64-v8a，R8 + .so 压缩存储）
 ```
 
-这个脚本固定了三个参数，少写任何一个都会白打包：
+> 2026-11-07 合并构建脚本后，用默认口径（**不混淆**）重建过一次：7.91 MB /
+> `8 289 399` 字节，`verify_apk.py` 全绿。同一份源码再用 `--obfuscate` 打一次是
+> 7.88 MB / `8 260 727` 字节——**混淆只省 28 672 B（0.03 MB）**，这就是「默认关」
+> 最直接的依据。合并前那批 7.88 MB 的包原本就是混淆口径，只是没人在意。
 
-| 参数 | 作用 | 实测效果 |
+这个脚本固定了四件事，少写任何一件都会得到「看起来能装、其实不该发」的包：
+
+| 项 | 作用 | 实测效果 |
 | --- | --- | --- |
 | `--target-platform android-arm64` | 只打 64 位 | **43.9 MB → 17.2 MB**（省 28.7 MB） |
 | R8（`minifyEnabled` + `shrinkResources`） | 删未引用代码 / 混淆成短名 / 删无用资源 | **17.2 MB → 15.5 MB**（dex 2004 KB → 396 KB） |
 | `--split-debug-info=build/symbols` | 把调试符号从 `libapp.so` 剥离另存 | **15.5 MB → 14.97 MB**（`libapp.so` 3.69 → 3.19 MB） |
+| `tool/verify_apk.py`（脚本自动调用） | 解包断言 ABI / R8 keep 类 / 数据源字符串 | 任一不通过即非零退出，不会静默产出坏包 |
 
-还有一处**不在命令行里**、但同样少不得的：`android/app/build.gradle.kts` 的
-`packaging { jniLibs { excludes } }`（16.25 → **16.06 MB**，见下文「插件带来的第三个 ABI」）。
+还有两处**不在命令行里**、但同样少不得的（都在 `android/app/build.gradle.kts`）：
+
+| Gradle 开关 | 作用 | 实测效果 |
+| --- | --- | --- |
+| `packaging.jniLibs.excludes` | 剔掉插件带进来的 v7a / x86_64 `libdartjni.so` | 16.25 → **16.06 MB**（见下文「插件带来的第三个 ABI」） |
+| `packaging.jniLibs.useLegacyPackaging = true` | `.so` 从 stored 改成 **DEFLATE** 压缩 | **16.59 → 7.84 MB（-52.8%）**，装后占用 17 → 23 MB |
+
+> `.so` 压缩是 2026-11-06 的 P0：AGP 8+ 默认不压缩原生库（安装后直接 mmap APK 里的页），
+> 三个 `.so` 白占的 8.7 MB 本该省下。自用 sideload 场景里「发出去的文件小一半」比
+> 「装后省 7 MB」值钱。代价是安装时解压一次、装后占用 +约 7 MB；
+> 冷启动做过同源 A/B（403ms 基线、门槛 450ms）无退化。要回滚就删掉这一行。
+>
+> 此时 APK 里 **94.3% 的体积仍是 Flutter 引擎的三个 `.so`**（`libflutter.so` /
+> `libapp.so` / `libdartjni.so`），继续「删代码瘦身」的空间已经很小——想再小一档
+> 得换 split ABI 之外的方案，不是删 Dart 代码能解决的。
 
 四档体积对照（同一份源码、同一台机器实测）：
 
@@ -2511,9 +2906,12 @@ WebSocket 已建立，等待认证结果
 | 三 ABI 全打 | 43.90 MB | 3.69 MB | Flutter 默认 |
 | 仅 arm64 | 17.21 MB | 3.69 MB | 关掉 R8 的对照基线 |
 | 仅 arm64 + R8 | 15.47 MB | 3.69 MB | |
-| **仅 arm64 + R8 + 剥离符号** | **14.97 MB** | 3.19 MB | 项目采用 |
-| 仅 arm64 + R8 + **混淆** | 14.91 MB | 3.13 MB | 只再省 0.06 MB，**不采用**（见下） |
+| **仅 arm64 + R8 + 剥离符号** | **14.97 MB** | 3.19 MB | 当时采用（此后又叠加 `.so` 压缩，见上） |
+| 仅 arm64 + R8 + **混淆** | 14.91 MB | 3.13 MB | 只再省 0.06 MB，**不采用**（2026-11-07 在当前包体上复测：0.03 MB，见 二·三十九） |
 
+> **以下是 16 MB 时代的体积演进（留证）**：数字对不上现在的 7.91 MB 是正常的，
+> 中间做了 `.so` 压缩存储。这一段的价值是看「每个改动各自花了多少字节」，不是当前值。
+>
 > 上表是「只有行情列表」那一版的对照数据，用来隔离每个参数各自的收益。
 > 加上订阅管理 + 收盘快照之后（多了 5 个 service、1 个弹层、`path_provider` 依赖链），
 > 同一套参数构建出的包是 **16.06 MB**（`libapp.so` 4.22 MB、`classes.dex` 942 KB）——
@@ -2616,30 +3014,40 @@ R8 一旦重命名，release 包**装得上但一启动就崩**（`UnsatisfiedLi
 >
 > 两个 AAR 都自带 consumer 规则，AGP 会自动合并进来，本项目不用额外写。
 
-### 为什么不用 Dart 混淆
+### 为什么默认不用 Dart 混淆
 
-实测 `--obfuscate` 只再省 **0.06 MB**（14.97 → 14.91），却会让崩溃栈变成一堆
-`a.b.c()`，并且必须长期保管 `symbols` 才能还原。个人自用不值得。
-真要开：
+实测 `--obfuscate` 只再省 **0.06 MB**（14.97 → 14.91；2026-11-07 在当前包体上
+复测为 28 672 B ≈ 0.03 MB），却会让崩溃栈变成一堆 `a.b.c()`，并且必须长期保管
+符号表才能还原。个人自用不值得，所以开关默认关。
+真要开（仍然走同一个入口，校验不会漏）：
 
 ```bash
-flutter build apk --release --target-platform android-arm64 \
-  --obfuscate --split-debug-info=build/symbols
+./tool/build_apk.sh --obfuscate   # 符号表在 build/symbols，发版必须一起归档
 ```
+
+> ✅ **构建入口只有一个：`tool/build_apk.sh`**（2026-11-07 合并）。
+>
+> 仓库根目录的 `build_apk.sh` / `build_apk.cmd` 已改成「打印提示 + `exit 1`」的
+> 废弃壳：它们原来开 `--obfuscate`、不跑 `verify_apk.py`、不设国内镜像，误用就是
+> 一个「崩溃栈不可诊断、也没人校验过」的包。现在走错门会当场失败并指路，
+> 不会静默产出坏包。
+>
+> 两条纪律顺带钉死：**不要直接 `flutter build apk`**（漏符号分离与校验），
+> **不要删 `build/symbols`**（混淆包 / 崩溃栈还原都靠它）。
 
 ### 包信息（当前源码配置）
 
 | 项 | 值 | 证据 |
 | --- | --- | --- |
 | package / namespace | `app.supermarket`（两者一致；2026-11-06 定案） | `build.gradle.kts` |
-| versionName / versionCode | `1.0.7` / `35` | `pubspec.yaml:4`（`version: 1.0.7+35`；2026-11-05 美股支持版。**此表须随每次升版更新**——上次停在 1.0.1+29，正是 E-02 说的漂移） |
-| compileSdk / targetSdk | `37` / `37`（Android 17） | `build.gradle.kts:16,32` |
-| minSdk | 跟随 `flutter.minSdkVersion` | `build.gradle.kts:31` |
-| 权限 | `android.permission.INTERNET`（仅此一项） | `AndroidManifest.xml:3` |
-| 应用名 | `超级市场` | `AndroidManifest.xml:5` |
-| 图标 | 自适应图标：背景 `@drawable/ic_launcher_background`（海蓝渐变 shape），前景与 `monochrome` 复用 `@drawable/ic_launcher_foreground`（位图，`tool/icongen` 生成） | `drawable/ic_launcher_background.xml`、`mipmap-anydpi-v26/ic_launcher.xml` |
-| native ABI | **arm64-v8a**（`--target-platform android-arm64`） | `tool/build_apk.sh:34-36` |
-| 产物 | `build/app/outputs/flutter-apk/app-release.apk`；另由 `copySuperMarketApk` 复制为 `build/app/outputs/supermarket/super market.apk` | `build_apk.sh:30`、`build.gradle.kts:132-135` |
+| versionName / versionCode | `1.0.7` / `35` | `pubspec.yaml`（`version: 1.0.7+35`；**此表须随每次升版更新**——上次停在 1.0.1+29，正是 E-02 说的漂移） |
+| compileSdk / targetSdk | `37` / `37`（Android 17） | `build.gradle.kts`；`aapt dump badging` 可复核 |
+| minSdk | `24`（Android 7.0） | `aapt dump badging` → `sdkVersion:'24'` |
+| 权限 | `android.permission.INTERNET`（仅此一项） | `AndroidManifest.xml` |
+| 应用名 | `超级市场` | `AndroidManifest.xml` |
+| 图标 | 自适应图标：**纯白背景**（`@android:color/white`）+ **黑色虎鲸**前景（`drawable-nodpi/ic_launcher_foreground.png`，`tool/icongen/IconGen.java` 渲染，眼斑/腹月牙/嘴线用 DstOut 镂空透白）；`monochrome` 复用同一前景；Android 7.x 回落 `mipmap-*/ic_launcher.png` 五档 | `mipmap-anydpi-v26/ic_launcher.xml`、`tool/icongen/regen.sh` |
+| native ABI | **arm64-v8a**（`--target-platform android-arm64`） | `tool/build_apk.sh`；`tool/verify_apk.py` 断言 |
+| 产物 | `build/app/outputs/flutter-apk/app-release.apk`；另由 `copySuperMarketApk` 复制为 `build/app/outputs/supermarket/super market.apk` | `build.gradle.kts` |
 
 > 历史快照（plus27）：16.72 MB / sha256 `a0d5bd59…`，当时包名 `com.example.itick_quote`、
 > 应用名「A股行情」、图标是白色 W 矢量。**这些不是当前产物**；以重新打包后的
@@ -2665,13 +3073,17 @@ python tool/verify_apk.py
 
 ```
 包体   : build/app/outputs/flutter-apk/app-release.apk
-        16.13 MB（解压后 16.67 MB）
+        7.91 MB（解压后 18.60 MB）
 
 架构   : ✓ ['arm64-v8a']
-R8     : ✓ classes.dex 942 KB（未开 R8 约 6000 KB）
+
+目标   : ✓ targetSdk 37（期望 37 = Android 17）
+R8     : ✓ classes.dex 954 KB（未开 R8 约 6000 KB）
+冗余   : ✓ 编译器元数据 0 KB（0 项）
+传输   : ✓ 禁明文配置（清单已挂，cleartext=false）
        : ✓ io.flutter.embedding.engine.FlutterJNI
        : ✓ io.flutter.embedding.android.FlutterActivity
-Dart   : libapp.so 4.19 MB
+Dart   : libapp.so 4.31 MB
 
 数据源 : ✓ 新浪行情域 hq.sinajs.cn
 数据源 : ✓ 新浪 Referer finance.sina.com.cn
@@ -2719,26 +3131,26 @@ Dart 的 AOT 编译从 `main()` 做**全程序树摇**：没被任何可达路�
    「彻底不要 API Key」不只是换了个默认值，是这条路径根本不在二进制里。
    同理，`SymbolDirectory` 的默认源也已改成 `PollingSources.defaultChain.first`，
    否则「换股票」还会去敲 iTick 的目录接口，那时字符串就会留在包里（这条是自检的反向用法）。
-2. **Token 常量还在**。`AppConfig.token` 是 `const`，而 `hasToken` 被页面引用着
-   （`_service.needsToken && !AppConfig.hasToken` 决定要不要显示凭证提示条），
-   可达 → 保留。它不参与运行，但确实是包里的死数据；校验脚本把它报成**提示**
-   而不是失败，就是不想用「让门禁变红」的方式掩盖一个没人会去修的小事。
-   真要清掉，得把 `AppConfig.token` 空掉、让 iTick 走既有的「需要 Token 但没配」
-   分支（提示条 + 短路，已有测试覆盖）——代价是 iTick 不能再开箱即用，属于产品决策，
-   留待确认。
+2. **`AppConfig.token` 已彻底删除**：`lib/` 里 `token` / `hasToken` / `needsToken`
+   全部零引用，凭证提示条也跟着没了。校验脚本现在只核对业务端点，
+   不再有「Token 常量还在包里」这条提示。
 
-图标是**红底白线**：`#E03A2F` 底 + 白色 W，全部矢量。
+图标是**白底 + 黑色虎鲸**（2026-11-05 定稿，负空间语言：眼斑 / 腹月牙 / 嘴线镂空透白）。
 
-- API 26+：`mipmap-anydpi-v26/ic_launcher.xml` → `@color/ic_launcher_background`
-  ＋ `@drawable/ic_launcher_foreground`（108×108 viewport 的单条描边路径）
-  ＋ `monochrome` 复用前景。
-- API 24~25：`mipmap-*/ic_launcher.png` 五档（48/72/96/144/192），是最初那版位图。
+- API 26+：`mipmap-anydpi-v26/ic_launcher.xml` → 背景 `@android:color/white`
+  ＋ 前景 `@drawable/ic_launcher_foreground`（`drawable-nodpi` 里的 432px 位图）
+  ＋ `monochrome` 复用前景（Android 13+ 主题图标只取 alpha 再上色）。
+- API 24~25：`mipmap-*/ic_launcher.png` 五档（48/72/96/144/192），白色圆底
+  ＋ 同一套负空间白墨。
 
-> 中途做过一版「白玻璃板 + 黑箭头 + 边缘色散」，为此写了位图生成器
-> （`tool/gen_launcher_icons_test.dart`，8× 超采样 + sweep 光谱 + 高斯模糊）。
-> 用户否掉了，整套回退，生成器一并删除——它只为那版服务，留着就会把
-> 同名资源冲成玻璃图标。同理，更早的 `tool/icon/gen_icon.py` 也已删除。
-> **图标资源现在只有一套：`res/` 里的矢量和五张 PNG，没有生成脚本。**
+生成器是 `tool/icongen/IconGen.java` + `regen.sh`（`java IconGen foreground 432 …`，
+`legacy` 模式出五档）。**改图只跑这一条命令**，别手改 `res/` 里的 PNG。
+
+> 版本史：最初是红底白线 W（矢量）→ 一版「白玻璃板 + 黑箭头 + 边缘色散」
+> （`tool/gen_launcher_icons_test.dart`，8× 超采样 + sweep 光谱 + 高斯模糊）→
+> 蓝底虎鲸 → 现在的白底黑虎鲸。前几版都被否掉、整套回退；
+> `gen_launcher_icons_test.dart` 与更早的 `tool/icon/gen_icon.py` 已删——
+> 它们只为各自那版服务，留着会把同名资源冲成旧图标。
 
 release 已用**正式密钥签名**（2026-11-05 生成）：`android/keystore.properties` 指向
 `android/keystore/supermarket-release.jks`（RSA 2048 / PKCS12 / 30 年有效期，alias `supermarket`）。
