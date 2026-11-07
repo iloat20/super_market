@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/kline.dart';
 import 'package:super_market/models/quote.dart';
+import 'package:super_market/services/source/eastmoney_us_source.dart';
 import 'package:super_market/services/source/sina_kline.dart';
 import 'package:super_market/services/source/sina_source.dart';
 import 'package:super_market/services/source/tencent_kline.dart';
@@ -31,7 +32,11 @@ const StockConfig baba = StockConfig(
   region: 'US',
   exchange: 'NYSE',
 );
-const StockConfig geely = StockConfig(code: '000651', name: '格力电器', region: 'SZ');
+const StockConfig geely = StockConfig(
+  code: '000651',
+  name: '格力电器',
+  region: 'SZ',
+);
 
 /// 2026-11-05 18:16 实测 `hq.sinajs.cn/list=gb_aapl`（中文名在 GBK 线上，
 /// fixture 里用 utf8 写、解析器不读名称，数字与逗号不受影响）。
@@ -42,8 +47,7 @@ const String _aaplBody =
     'Nov 05 05:16AM EST,Nov 04 04:00PM EST,331.9000,204794,1,2026,'
     '31441204724.8845,351.5725,348.8300,71775350.3572,349.3722,349.5100';
 
-String _sinaLine(String symbol, String body) =>
-    'var hq_str_$symbol="$body";\n';
+String _sinaLine(String symbol, String body) => 'var hq_str_$symbol="$body";\n';
 
 List<int> _bytes(String text) => utf8.encode(text);
 
@@ -56,10 +60,7 @@ void main() {
       expect(SinaSource.wireSymbol(aapl), 'gb_aapl');
       expect(SinaSource.wireSymbol(baba), 'gb_baba');
       // 既有写法不受影响
-      expect(
-        SinaSource.wireSymbol(geely),
-        'sz000651',
-      );
+      expect(SinaSource.wireSymbol(geely), 'sz000651');
     });
 
     test('字段表：价/额/幅/开高低/量股/额USD/昨收/北京时间戳', () {
@@ -91,10 +92,9 @@ void main() {
     });
 
     test('单位自洽：额 ÷ 量 ≈ 现价（换算错不报错，用比值当判据）', () {
-      final Quote q = _parseSina(
-        _sinaLine('gb_aapl', _aaplBody),
-        <StockConfig>[aapl],
-      ).single;
+      final Quote q = _parseSina(_sinaLine('gb_aapl', _aaplBody), <StockConfig>[
+        aapl,
+      ]).single;
       expect(q.turnover / q.volume, closeTo(q.price, q.price * 0.05));
     });
 
@@ -220,6 +220,111 @@ void main() {
           const StockConfig(code: '01378', name: '中国宏桥', region: 'HK'),
         ),
         isFalse,
+      );
+    });
+  });
+
+  group('东财美股报价（补位源）', () {
+    const EastmoneyUsSource em = EastmoneyUsSource();
+
+    // 2026-11-07 真网截取（`fltt=2&invt=2`），与新浪 `gb_aapl` 逐字段同值
+    const String body =
+        '{"rc":0,"rt":11,"data":{"total":2,"diff":['
+        '{"f2":342.37,"f3":-0.52,"f4":-1.8,"f5":44703806,'
+        '"f6":15323860736.0,"f12":"AAPL","f13":105,"f15":345.79,'
+        '"f16":338.3,"f17":338.73,"f18":344.17,"f124":1793998800},'
+        '{"f2":109.45,"f3":1.28,"f4":1.38,"f5":9560383,'
+        '"f6":1040492080.0,"f12":"BABA","f13":106,"f15":109.69,'
+        '"f16":106.44,"f17":106.83,"f18":108.07,"f124":1793998800}]}}';
+
+    test('地址：secid 映射 + 让服务端直接给小数', () {
+      final Uri uri = em.batchQuoteUri(<StockConfig>[aapl, baba]);
+      expect(uri.host, 'push2.eastmoney.com');
+      expect(uri.path, '/api/qt/ulist.np/get');
+      expect(uri.queryParameters['secids'], '105.AAPL,106.BABA');
+      expect(
+        uri.queryParameters['fltt'],
+        '2',
+        reason: '不带它价格是整数（342370），除 100 还是 1000 只能猜',
+      );
+      expect(uri.queryParameters['invt'], '2');
+      expect(uri.queryParameters['fields'], contains('f124'));
+      // 交易所缺失时按 NASDAQ 兜底，与腾讯 .OQ 同口径
+      expect(
+        EastmoneyUsSource.secidOf(
+          const StockConfig(code: 'PDD', name: '拼多多', region: 'US'),
+        ),
+        '105.PDD',
+      );
+    });
+
+    test('解析：字段表 / 时间戳 / 单位', () {
+      final List<Quote> quotes = em.parseBatchQuotes(
+        utf8.encode(body),
+        stocks: <StockConfig>[aapl, baba],
+      );
+      expect(quotes, hasLength(2));
+      final Quote q = quotes.firstWhere((Quote x) => x.code == 'AAPL');
+      expect(q.region, 'US');
+      expect(q.price, 342.37);
+      expect(q.previousClose, 344.17);
+      expect(q.change, -1.8);
+      expect(q.changePercent, -0.52);
+      expect(q.open, 338.73);
+      expect(q.high, 345.79);
+      expect(q.low, 338.3);
+      expect(q.volume, 44703806, reason: '美股量是股，不换算');
+      expect(q.turnover, 15323860736.0, reason: 'USD 元，不换算');
+      expect(
+        q.timestamp,
+        DateTime.fromMillisecondsSinceEpoch(1793998800 * 1000),
+        reason: 'f124 是最后成交时刻（epoch 秒），不是页面刷新时间',
+      );
+    });
+
+    test('没订阅的代码 / "-" 价 / 0 价 / 缺时间戳 / 越界时间戳：整行跳过', () {
+      const String dirty =
+          '{"data":{"diff":['
+          '{"f2":530.61,"f12":"MSFT","f13":105,"f124":1793998800},'
+          '{"f2":"-","f12":"AAPL","f13":105,"f124":1793998800},'
+          '{"f2":342.37,"f12":"AAPL","f13":105},'
+          '{"f2":0,"f12":"AAPL","f13":105,"f124":1793998800},'
+          '{"f2":342.37,"f12":"AAPL","f13":105,"f124":999999999999}'
+          ']}}';
+      expect(
+        em.parseBatchQuotes(utf8.encode(dirty), stocks: <StockConfig>[aapl]),
+        isEmpty,
+        reason: '0 价覆盖旧价，比「不更新」严重得多',
+      );
+    });
+
+    test('data:null / diff 是对象：都能安全返回', () {
+      expect(
+        em.parseBatchQuotes(
+          utf8.encode('{"rc":0,"data":null}'),
+          stocks: <StockConfig>[aapl],
+        ),
+        isEmpty,
+      );
+      // 单只时个别端点把 diff 给成对象，不能因此炸掉整轮
+      const String asMap =
+          '{"data":{"diff":{"0":{"f2":342.37,"f12":"AAPL","f13":105,'
+          '"f124":1793998800}}}}';
+      expect(
+        em.parseBatchQuotes(utf8.encode(asMap), stocks: <StockConfig>[aapl]),
+        hasLength(1),
+      );
+    });
+
+    test('只声明美股；不提供代码目录', () async {
+      expect(em.markets, <String>['US']);
+      expect(em.id, 'eastmoney-us');
+      expect(
+        await em.fetchSymbols(
+          httpGet: (Uri uri, Map<String, String> headers) async =>
+              throw UnimplementedError('目录不该走这个源'),
+        ),
+        isEmpty,
       );
     });
   });

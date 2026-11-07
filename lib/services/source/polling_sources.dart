@@ -1,3 +1,4 @@
+import 'eastmoney_us_source.dart';
 import 'polling_source.dart';
 import 'sina_source.dart';
 import 'tencent_source.dart';
@@ -21,4 +22,15 @@ abstract final class PollingSources {
     SinaSource(),
     TencentSource(),
   ];
+
+  /// **区域补位源**：主链覆盖不到的市场由它兜住，目前只有美股。
+  ///
+  /// 为什么需要：新浪覆盖 A/H/US，腾讯只有 A/H。没有补位源时，只要订阅里
+  /// 有一只美股，`_nextViableIndex` 就永远找不到「覆盖全部」的备源——
+  /// 结果不是「美股降级」，而是**整个主备切换都失效**，新浪挂了原地退避。
+  /// 有了它，切到腾讯只意味着 A/H 换源，美股继续由东财供数。
+  ///
+  /// 正常路径**不产生任何额外请求**：只有主链不覆盖美股、或主链这一轮漏了
+  /// 美股，才会补一次。
+  static const PollingSource regionBackup = EastmoneyUsSource();
 }

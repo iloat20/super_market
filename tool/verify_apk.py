@@ -339,6 +339,16 @@ def main(argv: list[str]) -> int:
             "「换股票」的输入即搜不可用，只能等目录下完",
         ),
         (
+            "美股补位域 push2.eastmoney.com",
+            b"push2.eastmoney.com" in so,
+            "美股补位源没打进包：新浪一挂，美股卡就只剩最后一张快照",
+        ),
+        (
+            "美股补位批量端点 ulist.np",
+            b"ulist.np" in so,
+            "端点被树摇/改坏：补位请求打到一个不存在的路径上，静默全失败",
+        ),
+        (
             "iTick 推送链已树摇（api-free.itick.org 不在包里）",
             b"api-free.itick.org" not in so,
             "release 包里还有 iTick 代码 —— 若确实要切回它，请同步更新本脚本和 README",
@@ -373,7 +383,7 @@ def main(argv: list[str]) -> int:
 
     print(
         f"{OK} 全部通过：64 位单架构、targetSdk {EXPECT_TARGET_SDK}（Android 17）、"
-        "R8 生效且保留了 JNI 类、新浪主力 + 腾讯备份已打进包、"
+        "R8 生效且保留了 JNI 类、新浪主力 + 腾讯备份 + 美股补位已打进包、"
         "iTick 推送链不在运行时"
     )
     return 0

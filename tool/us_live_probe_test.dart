@@ -4,12 +4,15 @@
 // 「这家接口此刻还长这样」钉住：报文结构变了这里先红，而不是等真机上
 // 某张卡变成三个 `--` 才发现。
 //
-// 事实链（2026-11-05 实测，细节见 README「二·三十」）：
+// 事实链（2026-11-05 / 11-07 实测，细节见 README「二·三十三」「二·四十」）：
 // - 新浪报价支持美股（`gb_` 前缀），且 **A/H/美股混批一发全回**；
 // - 新浪 K 线不支持美股（`data:null`），美股 K 线只有腾讯 ifzq；
 // - 腾讯 qt.gtimg.cn 报价端点不支持美股（`v_pv_none_match`），但
 //   **混批里 A/H 照常返回、美股静默缺失**——切源时 A/H 不受影响；
-// - 腾讯 ifzq 日 K 支持美股（交易所后缀 NASDAQ=`.OQ`、NYSE=`.N`，量=股）；
+// - 腾讯 ifzq 的日 K 响应里带 `qt` 报价块（美股也有、与新浪同价），但
+//   **一只票要发一次 K 线请求**，不能批量；所以只把它当事实记录，不用作补位；
+// - 东财 push2 支持美股**批量**报价（`secids=105.AAPL,106.BABA`），
+//   与新浪逐字段同值，是现在的美股补位源（`EastmoneyUsSource`）；
 // - 带点/下划线的多类股（BRK.B / BRK_B）两家都拿不到数据，搜索侧已挡。
 //
 // 跑法：unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY &&
@@ -19,6 +22,7 @@ import 'package:super_market/config/app_config.dart';
 import 'package:super_market/models/kline.dart';
 import 'package:super_market/models/quote.dart';
 import 'package:super_market/services/rest_client.dart';
+import 'package:super_market/services/source/eastmoney_us_source.dart';
 import 'package:super_market/services/source/sina_kline.dart';
 import 'package:super_market/services/source/sina_source.dart';
 import 'package:super_market/services/source/tencent_kline.dart';
@@ -36,8 +40,11 @@ const StockConfig kBaba = StockConfig(
   region: 'US',
   exchange: 'NYSE',
 );
-const StockConfig kGeely =
-    StockConfig(code: '000651', name: '格力电器', region: 'SZ');
+const StockConfig kGeely = StockConfig(
+  code: '000651',
+  name: '格力电器',
+  region: 'SZ',
+);
 
 Future<HttpRawResponse> fetch(Uri uri, Map<String, String> headers) async {
   final HttpRawResponse res = await defaultHttpGetBytes(uri, headers);
@@ -61,14 +68,19 @@ void main() {
     expect(q.volume, greaterThan(0));
     expect(q.previousClose, greaterThan(0), reason: '昨收在 [26]，漏了它振幅就没了');
     // 单位判据：额 ÷ 量 ≈ 现价（量被误 ×100 或额被换算错时这个比值会歪）
-    expect(q.turnover / q.volume, closeTo(q.price, q.price * 0.05),
-        reason: '成交额/成交量应约等于成交均价（现价附近）');
+    expect(
+      q.turnover / q.volume,
+      closeTo(q.price, q.price * 0.05),
+      reason: '成交额/成交量应约等于成交均价（现价附近）',
+    );
     // ignore: avoid_print
-    print('新浪美股 ${q.code}: 价 ${q.price} '
-        '(${q.changePercent.toStringAsFixed(2)}%) '
-        '量 ${q.volume.toStringAsFixed(0)} 股 '
-        '额 ${(q.turnover / 1e8).toStringAsFixed(2)} 亿USD '
-        '@ ${q.timestamp}');
+    print(
+      '新浪美股 ${q.code}: 价 ${q.price} '
+      '(${q.changePercent.toStringAsFixed(2)}%) '
+      '量 ${q.volume.toStringAsFixed(0)} 股 '
+      '额 ${(q.turnover / 1e8).toStringAsFixed(2)} 亿USD '
+      '@ ${q.timestamp}',
+    );
   });
 
   test('新浪混批：A 股 + 美股一发全回（轮询架构不变的前提）', () async {
@@ -95,11 +107,16 @@ void main() {
     final List<Kline> bars = source.parseDaily(res.body, kApple);
     expect(bars.length, greaterThan(2));
     expect(bars.last.close, greaterThan(0));
-    expect(bars.last.volume, lessThan(1e8),
-        reason: '美股量是股（AAPL 一天 ~1 亿股）；若被 ×100 会到 1e10 量级');
+    expect(
+      bars.last.volume,
+      lessThan(1e8),
+      reason: '美股量是股（AAPL 一天 ~1 亿股）；若被 ×100 会到 1e10 量级',
+    );
     // ignore: avoid_print
-    print('美股日线 ${bars.length} 根：${bars.first.time} → ${bars.last.time}，'
-        '末根量 ${bars.last.volume.toStringAsFixed(0)} 股');
+    print(
+      '美股日线 ${bars.length} 根：${bars.first.time} → ${bars.last.time}，'
+      '末根量 ${bars.last.volume.toStringAsFixed(0)} 股',
+    );
   });
 
   test('腾讯 ifzq 日 K：NYSE 后缀 .N（中概 ADR）', () async {
@@ -110,6 +127,51 @@ void main() {
     );
     final List<Kline> bars = source.parseDaily(res.body, kBaba);
     expect(bars, isNotEmpty, reason: 'usBABA.N 必须有数据（.N 后缀写法实测有效）');
+  });
+
+  test('东财 push2 美股报价：批量两只、与新浪同值（补位源的真网证据）', () async {
+    const EastmoneyUsSource em = EastmoneyUsSource();
+    const List<StockConfig> stocks = <StockConfig>[kApple, kBaba];
+    final HttpRawResponse res = await fetch(
+      em.batchQuoteUri(stocks),
+      em.requestHeaders(),
+    );
+    final List<Quote> quotes = em.parseBatchQuotes(res.body, stocks: stocks);
+    expect(quotes, hasLength(2), reason: '105.AAPL / 106.BABA 各一只，批量必须都回');
+
+    final Quote apple = quotes.firstWhere((Quote q) => q.code == 'AAPL');
+    expect(apple.price, greaterThan(0));
+    expect(apple.previousClose, greaterThan(0), reason: '昨收缺失就没有振幅');
+    expect(apple.volume, greaterThan(0));
+    // 单位判据：额 ÷ 量 ≈ 现价（缩放错了这个比值会歪 10 倍）
+    expect(
+      apple.turnover / apple.volume,
+      closeTo(apple.price, apple.price * 0.05),
+      reason: '成交额/成交量应约等于成交均价',
+    );
+    expect(apple.timestamp, isNotNull, reason: 'f124 是最后成交时刻');
+
+    // 与新浪对同一只票：两次请求相隔几百毫秒，盘中允许小幅差异
+    const SinaSource sina = SinaSource();
+    final HttpRawResponse sinaRes = await fetch(
+      sina.batchQuoteUri(<StockConfig>[kApple]),
+      sina.requestHeaders(),
+    );
+    final Quote sinaApple = sina
+        .parseBatchQuotes(sinaRes.body, stocks: <StockConfig>[kApple])
+        .single;
+    expect(
+      apple.price,
+      closeTo(sinaApple.price, sinaApple.price * 0.01),
+      reason: '两个源对 AAPL 的价差超过 1% 就说明有一边读错了字段',
+    );
+    // ignore: avoid_print
+    print(
+      '东财美股 ${apple.code}: 价 ${apple.price} '
+      '(${apple.changePercent.toStringAsFixed(2)}%) '
+      '量 ${apple.volume.toStringAsFixed(0)} 股 '
+      '@ ${apple.timestamp}｜新浪同价 ${sinaApple.price}',
+    );
   });
 
   test('腾讯 qt.gtimg 报价端点不支持美股：解析为空（切源时 US 卡停更快照）', () async {

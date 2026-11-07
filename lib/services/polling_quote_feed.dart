@@ -43,6 +43,7 @@ class PollingQuoteFeed implements QuoteFeed {
   PollingQuoteFeed({
     required this.onQuotes,
     List<PollingSource>? chain,
+    this.regionBackup,
     List<StockConfig>? stocks,
     HttpGetBytes? httpGet,
     DateTime Function()? now,
@@ -71,6 +72,12 @@ class PollingQuoteFeed implements QuoteFeed {
   /// 主备内核，按顺序尝试；第一个是主力
   final List<PollingSource> _chain;
 
+  /// 区域补位源：主链覆盖不到的市场由它兜底（目前只有美股）。
+  ///
+  /// 它**不参与**主备轮转——主链的健康度只看 [_chain] 里的源。补位源只负责
+  /// 「主链管不着的那些标的」，失败也只影响那些标的，不触发整体切源。
+  final PollingSource? regionBackup;
+
   final HttpGetBytes _httpGet;
   final DateTime Function() _now;
   final Duration _interval;
@@ -89,6 +96,9 @@ class PollingQuoteFeed implements QuoteFeed {
 
   /// 当前内核连续失败次数
   int _failStreak = 0;
+
+  /// 补位源连续失败次数（只用于提示，不触发主链切源）
+  int _backupFailStreak = 0;
 
   /// 已经连续失败了多少「圈」（一圈 = 所有内核都试过一遍）
   int _backoffLevel = 0;
@@ -150,6 +160,7 @@ class PollingQuoteFeed implements QuoteFeed {
     _paused = false;
     _backoffLevel = 0;
     _failStreak = 0;
+    _backupFailStreak = 0;
     if (_timer != null || _busy) {
       return; // 还在正常跑，不必打断节奏
     }
@@ -166,6 +177,7 @@ class PollingQuoteFeed implements QuoteFeed {
     _paused = false;
     _backoffLevel = 0;
     _failStreak = 0;
+    _backupFailStreak = 0;
     _cancelTimer();
     status.value = FeedStatus.connecting;
     lastError.value = null;
@@ -238,41 +250,115 @@ class PollingQuoteFeed implements QuoteFeed {
       return;
     }
     _busy = true;
-    final PollingSource source = _chain[_activeIndex];
-    // 只问这个内核**声明支持**的市场（`PollingSource.markets`）。
-    // 把不支持的标的拼进 URL 换来的是一行 `v_pv_none_match`：解析器跳过它，
-    // 而整批仍有别的票有价，于是这一轮被判「成功」——被跳过的那只从此
-    // 不再更新，且没有任何提示（见 _coverageGap）。
-    final List<StockConfig> targets = _coveredBy(source);
     try {
-      if (targets.isEmpty) {
-        throw _PollFailure('当前内核不覆盖任何订阅市场');
-      }
-      final HttpRawResponse res = await _httpGet(
-        source.batchQuoteUri(targets),
-        source.requestHeaders(),
-      ).timeout(_timeout);
+      final PollingSource source = _chain[_activeIndex];
+      // 只问这个内核**声明支持**的市场（`PollingSource.markets`）。
+      // 把不支持的标的拼进 URL 换来的是一行 `v_pv_none_match`：解析器跳过它，
+      // 而整批仍有别的票有价，于是这一轮被判「成功」——被跳过的那只从此
+      // 不再更新，且没有任何提示（见 _coverageGap）。
+      final List<StockConfig> targets = _coveredBy(source);
+      final List<Quote> quotes = <Quote>[];
+      Object? primaryError;
+      bool primaryOk = false;
 
-      if (!res.isOk) {
-        throw _PollFailure(res.failureLabel);
+      if (targets.isEmpty) {
+        primaryError = const _PollFailure('当前内核不覆盖任何订阅市场');
+      } else {
+        try {
+          quotes.addAll(await _fetchQuotes(source, targets));
+          primaryOk = true;
+        } on Object catch (e) {
+          primaryError = e;
+        }
       }
-      final List<Quote> quotes = source.parseBatchQuotes(
-        res.body,
-        stocks: targets,
-      );
-      if (quotes.isEmpty) {
-        // HTTP 200 但一条都解析不出来：报文结构变了，或者全是被过滤的脏数据。
-        // 这比 404 更危险（看起来是成功的），所以按失败处理并换源。
-        throw const _PollFailure('响应里没有可用的报价');
+
+      // 主链管不着的标的（美股）以及这轮漏掉的标的，由补位源补一次。
+      // 正常路径（主链把美股也拿全了）不会多发任何请求；补位失败已在
+      // _fillFromBackup 里记日志，这里不再重复刷屏。
+      await _fillFromBackup(quotes);
+
+      if (primaryOk) {
+        _onSuccess(quotes);
+      } else {
+        // 主源这轮失败，但补位拿到的价仍然要推给 UI——美股不该跟着 A/H
+        // 一起冻结。先落地行情，再记失败：_onFailure 会改状态与退避，
+        // 但不会清掉已经推下去的报价。
+        _applyQuotes(quotes);
+        final Set<String> got = <String>{
+          for (final Quote q in quotes) StockConfig.keyOf(q.code, q.region),
+        };
+        _onFailure(
+          primaryError ?? const _PollFailure('本轮没有任何行情'),
+          backupComplete:
+              quotes.isNotEmpty &&
+              _stocks.every((StockConfig s) => got.contains(s.key)),
+        );
       }
-      _onSuccess(quotes);
-    } on Object catch (e) {
-      _onFailure(e);
     } finally {
       _busy = false;
       if (!_disposed && !_paused) {
         _schedule(_delay());
       }
+    }
+  }
+
+  /// 一次请求 + 解析；失败抛 [_PollFailure]。
+  Future<List<Quote>> _fetchQuotes(
+    PollingSource source,
+    List<StockConfig> targets,
+  ) async {
+    final HttpRawResponse res = await _httpGet(
+      source.batchQuoteUri(targets),
+      source.requestHeaders(),
+    ).timeout(_timeout);
+    if (!res.isOk) {
+      throw _PollFailure(res.failureLabel);
+    }
+    final List<Quote> quotes = source.parseBatchQuotes(
+      res.body,
+      stocks: targets,
+    );
+    if (quotes.isEmpty) {
+      // HTTP 200 但一条都解析不出来：报文结构变了，或者全是被过滤的脏数据。
+      // 这比 404 更危险（看起来是成功的），所以按失败处理并换源。
+      throw const _PollFailure('响应里没有可用的报价');
+    }
+    return quotes;
+  }
+
+  /// 用补位源补齐 [quotes] 里缺的标的。
+  ///
+  /// 两种情况会补：
+  /// 1. 主链**不声明**支持这个市场（腾讯没有美股）；
+  /// 2. 主链声明支持、但这一轮报文里没有这只票（新浪偶发漏行）。
+  Future<void> _fillFromBackup(List<Quote> quotes) async {
+    final PollingSource? backup = regionBackup;
+    if (backup == null) {
+      return;
+    }
+    final Set<String> got = <String>{
+      for (final Quote q in quotes) StockConfig.keyOf(q.code, q.region),
+    };
+    final List<StockConfig> need = _stocks
+        .where((StockConfig s) => backup.markets.contains(s.region))
+        .where((StockConfig s) => !got.contains(s.key))
+        .toList(growable: false);
+    if (need.isEmpty) {
+      _backupFailStreak = 0; // 这轮不用补 = 主链自己够了
+      return;
+    }
+    try {
+      quotes.addAll(await _fetchQuotes(backup, need));
+      if (_backupFailStreak != 0) {
+        AppLog.i('补位已恢复：${backup.displayName}');
+        _backupFailStreak = 0;
+      }
+    } on Object catch (e) {
+      _backupFailStreak++;
+      AppLog.w(
+        '补位失败 ${backup.displayName} '
+        '（连续 $_backupFailStreak 次）：${_describe(e)}',
+      );
     }
   }
 
@@ -301,7 +387,17 @@ class PollingQuoteFeed implements QuoteFeed {
       lastError.value = gap;
       status.value = FeedStatus.connected;
     }
+    _applyQuotes(quotes);
+  }
 
+  /// 落地报价（棘轮 + 回调），**不碰状态机**。
+  ///
+  /// 单独拆出来，是因为「主源失败、补位有价」这一档要推数据，但不能把状态
+  /// 改成「已连接」——那会让用户以为 A/H 也好了。
+  void _applyQuotes(List<Quote> quotes) {
+    if (_disposed || _paused || quotes.isEmpty) {
+      return;
+    }
     final int nowMs = _now().millisecondsSinceEpoch;
     final List<Quote> applied = <Quote>[];
     for (final Quote quote in quotes) {
@@ -328,7 +424,7 @@ class PollingQuoteFeed implements QuoteFeed {
     }
   }
 
-  void _onFailure(Object error) {
+  void _onFailure(Object error, {bool backupComplete = false}) {
     // 同 _onSuccess：dispose 后只许安静退出
     if (_disposed) {
       return;
@@ -348,10 +444,10 @@ class PollingQuoteFeed implements QuoteFeed {
         _backoffLevel++;
       }
       if (_activeIndex == from) {
-        // 没有「能覆盖全部订阅标的」的备源：不切。切过去会让备源不覆盖的
-        // 那几只票静默冻结，而整批仍被判成功——比继续在主源上退避更糟。
+        // 没有「能带队」的备源：不切。切过去会让它不覆盖的那几只票静默
+        // 冻结，而整批仍被判成功——比继续在主源上退避更糟。
         AppLog.w(
-          '${_chain[from].displayName} 连续失败，但没有覆盖全部订阅的备源 → '
+          '${_chain[from].displayName} 连续失败，但没有能带队的备源 → '
           '原地退避 ${currentInterval.inSeconds}s',
         );
       } else {
@@ -364,6 +460,19 @@ class PollingQuoteFeed implements QuoteFeed {
       // 只有一个内核：没有可切的，直接进退避
       _failStreak = 0;
       _backoffLevel++;
+    }
+
+    if (backupComplete) {
+      // 主源确实挂了，但每个订阅标的都有价（补位源补全）。数据是完整的：
+      // 状态按「有数据」算，也不放慢节奏——慢下来只会让补位的数据更旧。
+      // 失败次数照常累计（该切源还是要切），只是不打扰用户。
+      _backoffLevel = 0;
+      if (status.value != FeedStatus.connected || lastError.value != null) {
+        AppLog.w('主源不可用，当前由补位源供数');
+        status.value = FeedStatus.connected;
+        lastError.value = null;
+      }
+      return;
     }
 
     if (_backoffLevel > 0) {
@@ -402,28 +511,55 @@ class PollingQuoteFeed implements QuoteFeed {
       .where((StockConfig s) => source.markets.contains(s.region))
       .toList(growable: false);
 
-  /// 当前内核覆盖不到几只订阅标的；全覆盖时返回 null。
+  /// 当前内核覆盖不到几只订阅标的（补位源能兜的不算）；全覆盖时返回 null。
+  ///
+  /// 第二个分支是**补位源自己的健康度**：配置了补位不等于补得上。连续失败
+  /// 达到阈值时也要说话，否则「美股卡又不动了」会退回到「神不知鬼不觉」。
   String? _coverageGap(PollingSource source) {
-    final int missing = _stocks.length - _coveredBy(source).length;
-    if (missing <= 0) {
-      return null;
+    final int missing = _stocks
+        .where((StockConfig s) => !_canServe(s, source))
+        .length;
+    if (missing > 0) {
+      return '${source.displayName} 不提供 $missing 只标的的行情，它们会停在旧价';
     }
-    return '${source.displayName} 不提供 $missing 只标的的行情，它们会停在旧价';
+    final PollingSource? backup = regionBackup;
+    if (backup != null && _backupFailStreak >= AppConfig.pollFailoverAfter) {
+      return '${backup.displayName}（备用源）连续失败，它负责的标的会停在旧价';
+    }
+    return null;
   }
 
-  /// 下一个**能覆盖全部订阅标的**的内核下标；都不行时按原顺序轮转。
+  /// [source] 自己或补位源能覆盖这只票的市场吗？
+  bool _canServe(StockConfig stock, PollingSource source) =>
+      source.markets.contains(stock.region) ||
+      (regionBackup?.markets.contains(stock.region) ?? false);
+
+  /// 下一个**能带队**的内核下标；都不行时按原顺序轮转。
+  ///
+  /// 「能带队」= 至少自己覆盖一个订阅市场（不能全靠补位源）+ 全市场都有人管。
+  /// 只订阅美股时，腾讯一个市场都不覆盖，切过去等于空转——即使补位源能供美股，
+  /// 也不该把主链切到一个纯摆设上。
   int _nextViableIndex(int from) {
     for (int step = 1; step <= _chain.length; step++) {
       final int index = (from + step) % _chain.length;
-      if (_coverageGap(_chain[index]) == null) {
+      if (_canLead(_chain[index])) {
         return index;
       }
     }
     return (from + 1) % _chain.length;
   }
 
-  String _label() =>
-      '${_chain[_activeIndex].displayName}（主备 ${_chain.length} 个内核）';
+  /// [source] 能当主力吗：自己至少覆盖一只订阅标的，且缺口有补位源兜。
+  bool _canLead(PollingSource source) =>
+      _stocks.any((StockConfig s) => source.markets.contains(s.region)) &&
+      _stocks.every((StockConfig s) => _canServe(s, source));
+
+  String _label() {
+    final PollingSource? backup = regionBackup;
+    final String suffix = backup == null ? '' : ' + 补位 ${backup.displayName}';
+    return '${_chain[_activeIndex].displayName}'
+        '（主备 ${_chain.length} 个内核$suffix）';
+  }
 
   static String _describe(Object error) {
     if (error is _PollFailure) {

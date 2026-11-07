@@ -3,7 +3,8 @@ import 'polling_quote_feed.dart';
 import 'quote_feed.dart';
 import 'source/polling_sources.dart';
 
-/// **当前生效的行情通道**：3s 一次 HTTP 轮询（新浪主 + 腾讯备），零凭证。
+/// **当前生效的行情通道**：3s 一次 HTTP 轮询（新浪主 + 腾讯备 + 美股补位），
+/// 零凭证。
 ///
 /// 为什么不做「自动降级」的复合 feed：状态语义不一样（一条长连接 vs 每 3s
 /// 一次请求），复合起来会让「已连接」到底指什么变得说不清。真要双通道，
@@ -16,7 +17,13 @@ abstract final class QuoteFeeds {
   static String get id => PollingSources.defaultChain.first.id;
 
   /// 构造当前通道
+  ///
+  /// 显式传补位源：主链（新浪/腾讯）都只管 A/H，美股靠东财补。别把这件事
+  /// 交给「构造函数默认值」——生产装配点只有这一处，写出来才看得见。
   static QuoteFeed create({
     required void Function(List<Quote> quotes) onQuotes,
-  }) => PollingQuoteFeed(onQuotes: onQuotes);
+  }) => PollingQuoteFeed(
+    onQuotes: onQuotes,
+    regionBackup: PollingSources.regionBackup,
+  );
 }
