@@ -27,13 +27,16 @@
 ///   冬令时：北京 = ET + 13。折算只影响时段判定（09:30/16:00 边界
 ///   都离换制时刻 02:00 很远），±1h 的边界歧义对结果无影响。
 ///
-/// 只判断「工作日 + 时段」，不处理法定节假日（需要交易日历，超出 MVP 范围）。
-/// 节假日会显示成「交易中」，这是已知限制，已写进 README。
+/// 交易日历（法定节假日、半日市）见 [MarketHolidays]：三个入口都是**先查表
+/// 再判时段**——春节、国庆这类「工作日但交易所休市」的日子返回
+/// [MarketSession.holiday]，不会再说「交易中」。周末优先于节假日（周末本来
+/// 就不开市，也不需要查表）；半日市只改收盘时刻，不改时段形状。
 ///
 /// 美股的时间折算（北京挂钟 → 美东挂钟）不在这里实现：它与日 K 补丁的
 /// 「交易日」是同一个规则，统一放在 `trading_day.dart`，避免两处各写一遍。
 library;
 
+import '../config/market_holidays.dart';
 import 'trading_day.dart';
 
 enum MarketSession {
@@ -53,7 +56,14 @@ enum MarketSession {
   closed('已收盘'),
 
   /// 周六、周日
-  weekend('休市');
+  weekend('休市'),
+
+  /// 法定节假日 / 交易所休市日（可能落在工作日）
+  ///
+  /// 与 [weekend] 共用「休市」文案：对本 App 的用户来说两者是同一件事——
+  /// 今天没有行情可看。分成两个枚举值只为让并集逻辑与测试能区分，
+  /// 界面上不必分辨（也不必为多出来的三个字改布局）。
+  holiday('休市');
 
   const MarketSession(this.label);
 
@@ -63,11 +73,18 @@ enum MarketSession {
   bool get isLive =>
       this == MarketSession.trading || this == MarketSession.callAuction;
 
+  /// 是否整日没有行情（周末或法定节假日）
+  bool get isRestDay =>
+      this == MarketSession.weekend || this == MarketSession.holiday;
+
   /// 根据本地时间判断**沪深 A 股**当前时段
   static MarketSession of(DateTime time) {
-    // 周六 = 6，周日 = 7
-    if (time.weekday == DateTime.saturday || time.weekday == DateTime.sunday) {
+    if (_isWeekend(time)) {
       return MarketSession.weekend;
+    }
+    // 沪深同表（MarketHolidays 里的 'A' 分组）
+    if (MarketHolidays.isClosedOn(time, 'A')) {
+      return MarketSession.holiday;
     }
     final int m = time.hour * 60 + time.minute;
     if (m < _callAuctionStart) {
@@ -95,10 +112,21 @@ enum MarketSession {
   /// 港股的开市前竞价（09:00–09:30）并入「未开盘」——它不出连续价，
   /// 跟盘前没有可见区别。
   static MarketSession ofHk(DateTime time) {
-    if (time.weekday == DateTime.saturday || time.weekday == DateTime.sunday) {
+    if (_isWeekend(time)) {
       return MarketSession.weekend;
     }
+    if (MarketHolidays.isClosedOn(time, 'HK')) {
+      return MarketSession.holiday;
+    }
     final int m = time.hour * 60 + time.minute;
+    // 半日市（农历除夕 / 圣诞前夕 / 新年前夕）：早市 09:30 起，
+    // 12:00–12:10 收市竞价后直接收盘，没有午休也没有午后。
+    if (MarketHolidays.isHalfDayOn(time, 'HK')) {
+      if (m < _hkMorningOpen) {
+        return MarketSession.preOpen;
+      }
+      return m < _hkHalfDayClose ? MarketSession.trading : MarketSession.closed;
+    }
     if (m < _hkMorningOpen) {
       return MarketSession.preOpen;
     }
@@ -124,15 +152,22 @@ enum MarketSession {
   /// （盘中）——必须先折算成美东挂钟，再判星期与时段。
   static MarketSession ofUs(DateTime time) {
     final DateTime et = easternWallClock(time);
-    if (et.weekday == DateTime.saturday || et.weekday == DateTime.sunday) {
+    if (_isWeekend(et)) {
       return MarketSession.weekend;
     }
+    // 节假日按**美东日历日**查表：北京 11/27 凌晨还是美东 11/26（感恩节）
+    if (MarketHolidays.isClosedOn(et, 'US')) {
+      return MarketSession.holiday;
+    }
+    // 半日市（感恩节次日 / 平安夜）：13:00 ET 收盘
+    final int close = MarketHolidays.isHalfDayOn(et, 'US')
+        ? _usHalfDayClose
+        : _usClose;
     final int m = et.hour * 60 + et.minute;
     if (m < _usOpen) {
       return MarketSession.preOpen;
     }
-    // 16:00 收盘，无收市竞价
-    if (m < _usClose) {
+    if (m < close) {
       return MarketSession.trading;
     }
     return MarketSession.closed;
@@ -145,8 +180,12 @@ enum MarketSession {
   /// [regions] 里 `HK` 走 [ofHk]、`US` 走 [ofUs]，其余（SH/SZ）走 [of]；
   /// 空集合退回 A 股口径，保证没传订阅信息的调用方行为不变。
   ///
-  /// 合并优先级：交易中 > 集合竞价 > 午间休市 > 未开盘 > 已收盘。
-  /// 「休市」只有全部订阅市场都休市时才成立。
+  /// 合并优先级：交易中 > 集合竞价 > 全部休市 > 午间休市 > 未开盘 > 已收盘。
+  ///
+  /// 「全部休市」要求**每个**订阅市场都是周末或节假日：只要有一个市场今天
+  /// 开过市（哪怕是已收盘），说「休市」就不准确。全部是休息日时，只要有一处
+  /// 是法定节假日就报 [MarketSession.holiday]——周末不写进表，所以「命中
+  /// holiday」只可能来自节假日。
   static MarketSession ofRegions(DateTime time, Iterable<String> regions) {
     final Set<MarketSession> sessions = <MarketSession>{
       for (final String region in regions)
@@ -165,8 +204,10 @@ enum MarketSession {
     if (sessions.contains(MarketSession.callAuction)) {
       return MarketSession.callAuction;
     }
-    if (sessions.every((MarketSession s) => s == MarketSession.weekend)) {
-      return MarketSession.weekend;
+    if (sessions.every((MarketSession s) => s.isRestDay)) {
+      return sessions.contains(MarketSession.holiday)
+          ? MarketSession.holiday
+          : MarketSession.weekend;
     }
     if (sessions.contains(MarketSession.lunchBreak)) {
       return MarketSession.lunchBreak;
@@ -176,6 +217,9 @@ enum MarketSession {
     }
     return MarketSession.closed;
   }
+
+  static bool _isWeekend(DateTime t) =>
+      t.weekday == DateTime.saturday || t.weekday == DateTime.sunday;
 
   static const int _callAuctionStart = 9 * 60 + 15; // 09:15
   static const int _continuousStart = 9 * 60 + 30; // 09:30
@@ -188,7 +232,11 @@ enum MarketSession {
   static const int _hkAfternoonStart = 13 * 60; // 13:00
   static const int _hkClose = 16 * 60 + 10; // 16:10（含收市竞价）
 
+  // 半日市收盘（12:00 起收市竞价，随机到 12:08–12:10，这里取上限）
+  static const int _hkHalfDayClose = 12 * 60 + 10; // 12:10
+
   // 美股（美东挂钟，无午休）
   static const int _usOpen = 9 * 60 + 30; // 09:30
   static const int _usClose = 16 * 60; // 16:00
+  static const int _usHalfDayClose = 13 * 60; // 13:00（感恩节次日 / 平安夜）
 }
