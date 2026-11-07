@@ -462,6 +462,11 @@ class AuroraBackground extends StatelessWidget {
 /// 同时饱和度 1.15 → 1.30 **补回来**：去掉白纱后折射会显得发灰，靠饱和度
 /// 把雾团颜色提亮，才是「透明玻璃」而不是「灰塑料」。
 /// v6「只要玻璃质感，不要白光」：把**所有加色**项清零，只留**光学形变**项。
+/// （这条路线到 v10 把斜向 rimLight 请了回来；v20 曾补回白纱与轻霜，被
+/// v21 整组撤销回到透明玻璃。v22 曾把边缘暗部与投影全清零，结果只剩一圈
+/// 白边、丢了折射与玻璃感，已按用户要求**回退到 v21**。下面几节是版本史，
+/// 最终值以文件末尾的 v21 为准。注意 v11~v19 是**背景色号**的版本序列，
+/// 别和这里的卡片材质版本混了。）
 ///
 /// 读包源码确认了白光的四个来源（`liquid_glass_settings.dart` 的文档）：
 /// - `rimLight`：光轴（默认 π/2 = 正上方）两端各一个光瓣，核心 1px + 柔尾，
@@ -501,27 +506,104 @@ class AuroraBackground extends StatelessWidget {
 ///
 /// 宽幅镜面（`lightIntensity`）仍然是 0——它才是「整条白带」的来源，
 /// `rimLight` 只是贴着轮廓的两个光瓣，两者不是一回事。
+///
+/// ## v20：整体再推一档，让「这里有块玻璃」一眼可读
+///
+/// ⚠️ **这一版的白纱 / 霜 / 模糊已被 v21 整组撤销**：用户要的是透明玻璃，
+/// 不是磨砂玻璃。以下保留作版本史，别照着它调。
+///
+/// （沿用材质调参序列：v19 是订阅弹层换色。v11~v19 里的 v11 指背景豆腐白，
+/// 与本节无关。）
+///
+/// v10 把斜向边缘光请回来之后，真机上是一块受光的透明片，但**卡身与背景
+/// 几乎同色**，静止画面里读不出材质。这次不换方向重做，只把同一套光学各
+/// 加一档，再补极轻的一层「体」：
+/// - `glassColor` 全透明 → **4% 白**（v5 之前白纱的量级）。包用的是保亮度
+///   tint（`applyGlassColorLW`），只借色相不压亮度，不会把背景洗白；
+/// - `frostOpacity` 0 → **0.16**、`blur` 0.6 → **1.2**：背景在卡内被轻轻
+///   糊一下，卡内外才有「隔着一层」的差别。frost 只走 premium，blur 在
+///   降级路径也生效；
+/// - 边缘光学：`refractiveIndex` 1.55 → **1.60**、`thickness` 44 → **48**、
+///   `fresnelStrength` 0.9 → **1.1**、`rimLight` 0.75 → **0.9**、
+///   `edgeAbsorption` 0.18 → **0.22**、`chromaticAberration` 0.55 → **0.65**、
+///   `glowIntensity` 1.0 → **1.2**（降级路径的边缘光也跟着亮一档）；
+/// - `saturation` 1.5 → **1.6**：补回白纱/霜之后颜色不能发灰。
+///
+/// 三条**不能越过的线**（都是真机踩过的）：
+/// 1. `lightIntensity` 仍为 0——一旦回来就是横贯上下边的整条白带；
+/// 2. `rimLight` 不到 1.0、光轴仍是左上 3π/4——满强度会变成一圈白描边；
+/// 3. `thickness` 不到 56——v9 时透镜带卷进来的那圈亮边就是一条白带。
+/// `bodyShade` 仍为 0（0.3 会把卡身压成灰塑料）。
+///
+/// ## v21：改回透明玻璃（2026-11-07 用户拍板）
+///
+/// v20 补的 4% 白纱 + 0.16 轻霜 + blur 1.2 把卡片做成了**磨砂玻璃**：
+/// 卡身糊了一层雾，背景不再原样透出来。用户要的是「透明玻璃」——卡身
+/// 必须完全透，玻璃感全部由**边缘光学**承担。这一版：
+/// - 白纱、霜、模糊整组撤掉：`glassColor` 全透明、`frost: 0`、
+///   `frostOpacity: 0`、`blur: 0`，`saturation` 回 1.5。顺带省掉 premium
+///   的 frost / blur 两个 pass；
+/// - 少了「体」，纯光学再推一档顶上：`thickness` 48 → **52**、
+///   `refractiveIndex` 1.60 → **1.64**、`fresnelStrength` 1.1 → **1.25**、
+///   `rimLight` 0.9 → **0.95**、`edgeAbsorption` 0.22 → **0.26**、
+///   `chromaticAberration` 0.65 → **0.7**。这些都是**形变 / 反射**而不是
+///   加色：卡身像素仍等于背景，只有轮廓一圈被弯折、提亮、压暗、拆出彩边
+///   ——透明玻璃正是靠这一圈被认出来的。
+/// - **最关键的一项**：`bodyMode` 从默认 `adaptive` 改成
+///   `GlassBodyMode.clear`。包源码写得很明白：adaptive「matches Apple's
+///   Glass.regular」，是保亮度归一化的**半透明常规玻璃**，会把卡身整体
+///   提亮；clear「matches Apple's Glass.clear」，才是按 alpha 直接合成的
+///   **透明玻璃**，且 specular / Fresnel / rim 物理全部保留。前面把 white
+///   项清得再干净，只要还是 adaptive，卡身就仍是一块白片。订阅弹层的
+///   `kSheetGlassSurface` 早就用 clear。
+///
+/// 红线照旧：`lightIntensity = 0`、`rimLight < 1.0` 且光轴左上 3π/4、
+/// `thickness < 56`、`bodyShade = 0`。
+///
+/// ## v22（已回退）：只清暗部会变成一圈白边
+///
+/// 曾按「完全透明、不要灰色边缘」把 `rimShade` / `rimShadeEnds` /
+/// `edgeAbsorption` / `shadow` / `shadowElevation` 全清零，亮边也收一档。
+/// 灰边确实消失了，但**玻璃感也一起没了**：用户反馈「变成白边了，没有了
+/// 边缘折射，没有了玻璃感」。按用户要求整体回退到 v21，本节只留踩坑记录。
+///
+/// 根因（2026-11-07 查包源码确认）：premium 折射是
+/// `texture(uBackgroundTexture, uv + displacement)` 采样**背景纹理**做 UV
+/// 弯折；而 `kSolidBackground = true` 把背景画成单一实色 `#F0EEE9`，位移后
+/// 采到的颜色完全相同，折射在视觉上根本不存在。边缘之所以看得见，靠的是
+/// 「加色亮部 + 减色暗部」这一对对比；清掉暗部后只剩加色项，就成了白边。
+/// 想既不留灰、又要有折射，得让背景本身有可折的明暗/色相起伏——这是背景
+/// 设计取舍，不能只靠调 `kGlassSurface` 解决。
 final LiquidGlassSettings kGlassSurface = LiquidGlassSettings.ios27Light
     .copyWith(
-      // 去白之后折射会显得发灰，靠饱和度把雾团颜色提回来
-      saturation: 1.5,
-      glassColor: const Color(0x00FFFFFF), // 白纱清零
-      frostOpacity: 0.0, // 霜清零
-      // 厚度 56 → 44：透镜带仍在（这是「有厚度的材料」的来源），但带子窄一点，
-      // 避免边缘折射卷进来的那圈亮边又变成一条白带
-      thickness: 44,
-      refractiveIndex: 1.55,
-      lightIntensity: 0.0, // 宽镜面高光清零（整条白带来自它）
-      fresnelStrength: 0.9, // 轮廓的底光；rimLight 回来之后让一档给它
-      // 光轴从正上方转到左上斜角：光瓣落在对角圆角上，不再横贯上下边
+      // 透明玻璃：卡身不叠任何颜色、不起任何雾。包文档明确 blur: 0 是
+      // "clear optical glass"（跳过模糊 pass，但保留镜面高光 / 菲涅尔 /
+      // 亚像素边缘折射），不是纯色填充。
+      // 关键：包默认 `adaptive` 是 Apple 的 Glass.regular（保亮度归一化的
+      // 半透明常规玻璃），会把卡身整体提亮成白片，光清 white 项没用。
+      // clear = Apple 的 Glass.clear：按 alpha 直接合成，glassColor 为 0 时
+      // 卡身像素就等于背景，specular / Fresnel / rim 物理照旧保留。
+      bodyMode: GlassBodyMode.clear,
+      saturation: 1.5, // 回到 v10 基线：没有白纱/霜要补色
+      glassColor: const Color(0x00FFFFFF), // 全透明，背景原样透出来
+      frost: 0, // 显式关掉霜层的 blur pass（frostOpacity 0 时本就不画）
+      frostOpacity: 0.0,
+      blur: 0,
+      // 卡身透明之后，玻璃只能靠「边缘」显形，光学项比 v20 再推一档：
+      // 厚度 48 → 52，仍不到 v9 那条 56 的亮边白带红线
+      thickness: 52,
+      refractiveIndex: 1.64, // 真玻璃约 1.5，边缘弯折更明确
+      lightIntensity: 0.0, // 必须为 0：宽镜面高光是整条白带的来源
+      fresnelStrength: 1.25, // 轮廓反射（物理项，不加白膜）
+      // 光轴保持左上斜角：光瓣落在对角圆角上，不再横贯上下边
       lightAngle: kGlassLightAngle,
-      rimLight: 0.75,
-      rimShade: 1.0, // 1.8 → 1.0：暗线保留，但不再过重
+      rimLight: 0.95, // 逼近原生 1.0 但不到顶，避免一圈白描边
+      rimShade: 1.0, // 暗发丝边保留，才接得住高光
       rimShadeEnds: 0.2,
-      edgeAbsorption: 0.18,
+      edgeAbsorption: 0.26, // 透明玻璃靠背光侧的暗部显形
       bodyShade: 0.0, // 必须为 0：0.3 会把卡身压成灰色
-      glowIntensity: 1.0,
-      chromaticAberration: 0.55, // 0.45 → 0.55：色散加强，玻璃签名
+      glowIntensity: 1.2, // 降级路径（flutter_tester / 无 Impeller）的边缘光
+      chromaticAberration: 0.7, // 色散是玻璃最强的签名；包标注 WIP，别再往上
     );
 
 /// 订阅弹层的玻璃材质（v19 起**只服务订阅弹层**；详情弹层 v15 已改走
