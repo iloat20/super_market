@@ -52,6 +52,9 @@ app.*.map.json
 
 # 仓库卫生（2026-11-05 首次入库前补）
 *.apk
+# 例外：dist/ 下按版本号归档的发布包要入库（个人自用，换机器直接取）。
+# 体积约 8MB/个，且 git 历史不可回收——只保留当前版本，旧包删掉不再回填。
+!/dist/*.apk
 android/.gradle/
 keystore.properties
 *.jks
