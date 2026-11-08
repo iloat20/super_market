@@ -86,7 +86,8 @@ void main() {
         DateTime(2026, 11, 5, 18, 16, 10),
         reason: '[3] 时间戳是北京时间，与 A/H 同一坐标',
       );
-      expect(q.tradingStatus, TradingStatus.normal);
+      // 新浪美股报文不带交易状态：不谎报 normal，用 unknown 表示「源不提供」。
+      expect(q.tradingStatus, TradingStatus.unknown);
       expect(q.source, QuoteSource.socket);
       expect(q.hasData, isTrue);
     });

@@ -132,7 +132,7 @@ class SinaKline implements KlineSource {
           time: t,
           price: price,
           // 1 分钟线的 volume 是**该分钟增量**（股），amount 是该分钟成交额（元）
-          volume: _num(row['volume']) ?? 0,
+          volume: _clampVolume(_num(row['volume'])),
           amount: _num(row['amount']) ?? 0,
         ),
       );
@@ -179,6 +179,10 @@ class SinaKline implements KlineSource {
     }
     return out;
   }
+
+  /// 单分钟增量不允许为负：负量会把累计成交量拖负，均价线因此消失，
+  /// 量柱还会被画成 1px 与「零成交」混淆。腾讯侧早已夹零，这里补齐。
+  static double _clampVolume(double? raw) => raw == null || raw <= 0 ? 0 : raw;
 
   Kline? _toKline({
     required DateTime time,

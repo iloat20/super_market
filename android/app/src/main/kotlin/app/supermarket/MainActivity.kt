@@ -55,28 +55,40 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "setFrameRate" -> {
-                        val fps = call.argument<Int>("fps") ?: 0
-                        val fixed = call.argument<Boolean>("fixed") ?: false
-                        result.success(applyFrameRate(fps, fixed))
+                // 任何分支抛异常都不能让 result 悬空：否则 Dart 侧 await
+                // 永不完成，异常还会变成一条 unhandled async error。
+                try {
+                    when (call.method) {
+                        "setFrameRate" -> {
+                            // StandardMessageCodec 可能把整数编成 Long；强转 Int 会抛 CCE
+                            val fps = (call.argument<Number>("fps") ?: 0).toInt()
+                            val fixed = call.argument<Boolean>("fixed") ?: false
+                            result.success(applyFrameRate(fps, fixed))
+                        }
+                        "adpf.start" -> {
+                            val target = (call.argument<Number>("targetNanos") ?: 0).toLong()
+                            result.success(adpf.start(target))
+                        }
+                        "adpf.report" -> {
+                            val error = adpf.report(
+                                (call.argument<Number>("workNanos") ?: 0).toLong(),
+                                (call.argument<Number>("targetNanos") ?: 0).toLong(),
+                            )
+                            if (error == null) {
+                                result.success(null)
+                            } else {
+                                result.error("ADPF_REPORT_FAILED", error, null)
+                            }
+                        }
+                        "adpf.stop" -> {
+                            adpf.stop()
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
                     }
-                    "adpf.start" -> {
-                        val target = (call.argument<Number>("targetNanos") ?: 0).toLong()
-                        result.success(adpf.start(target))
-                    }
-                    "adpf.report" -> {
-                        adpf.report(
-                            (call.argument<Number>("workNanos") ?: 0).toLong(),
-                            (call.argument<Number>("targetNanos") ?: 0).toLong(),
-                        )
-                        result.success(null)
-                    }
-                    "adpf.stop" -> {
-                        adpf.stop()
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
+                } catch (e: Exception) {
+                    Log.e(LOG_TAG, "perf: ${call.method} 处理失败：$e")
+                    result.error("PERF_HANDLER_ERROR", e.message, null)
                 }
             }
     }

@@ -148,7 +148,13 @@ class TencentKline implements KlineSource {
     if (rows is! List<Object?>) {
       return const <IntradayPoint>[];
     }
-    final DateTime? day = _parseDayNumber(inner['date']);
+    final Object? rawDay = inner['date'];
+    final DateTime? day = rawDay == null ? null : _parseDayNumber(rawDay);
+    // 完全没有 date 时仍按「今天 + 时分」退化（历史行为）；但 date 存在
+    // 却是脏值时整批丢弃——用一个被归一化过的日子画全天分时，比没有图更糟。
+    if (rawDay != null && day == null) {
+      return const <IntradayPoint>[];
+    }
 
     final List<IntradayPoint> out = <IntradayPoint>[];
     double prevVolume = 0;
@@ -235,7 +241,17 @@ class TencentKline implements KlineSource {
     if (y == null || m == null || d == null) {
       return null;
     }
-    return DateTime(y, m, d);
+    // `DateTime(y, m, d)` 对越界值不抛、只静默归一化（13 月 45 日 →
+    // 次年 2 月），脏字段会被洗成一个看似合法的日历日。逐字段比对把
+    // 这类输入判死，与新浪 / 腾讯报价侧的 plausibility 闸同口径。
+    if (y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) {
+      return null;
+    }
+    final DateTime parsed = DateTime(y, m, d);
+    if (parsed.year != y || parsed.month != m || parsed.day != d) {
+      return null;
+    }
+    return parsed;
   }
 
   /// `"0930"` + 当日 → DateTime。缺 date 时退化成"今天 + 时分"，
@@ -246,7 +262,7 @@ class TencentKline implements KlineSource {
     }
     final int? h = int.tryParse(hhmm.substring(0, 2));
     final int? m = int.tryParse(hhmm.substring(2));
-    if (h == null || m == null || h > 23 || m > 59) {
+    if (h == null || m == null || h < 0 || h > 23 || m < 0 || m > 59) {
       return null;
     }
     final DateTime base = day ?? DateTime.now();

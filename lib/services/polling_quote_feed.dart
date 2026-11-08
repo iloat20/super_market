@@ -161,6 +161,14 @@ class PollingQuoteFeed implements QuoteFeed {
     _backoffLevel = 0;
     _failStreak = 0;
     _backupFailStreak = 0;
+    if (_stocks.isEmpty) {
+      // 空订阅没有可拉的对象。_poll 的空列表分支在 finally 之前早退，
+      // 若这里仍置 connecting 并 schedule，状态会永久卡在「连接中」。
+      _cancelTimer();
+      status.value = FeedStatus.disconnected;
+      lastError.value = null;
+      return;
+    }
     if (_timer != null || _busy) {
       return; // 还在正常跑，不必打断节奏
     }
@@ -247,6 +255,11 @@ class PollingQuoteFeed implements QuoteFeed {
       return;
     }
     if (_stocks.isEmpty) {
+      // 这个早退在 finally 之外，必须自己把状态归位。
+      if (status.value != FeedStatus.disconnected) {
+        status.value = FeedStatus.disconnected;
+        lastError.value = null;
+      }
       return;
     }
     _busy = true;
@@ -268,11 +281,19 @@ class PollingQuoteFeed implements QuoteFeed {
           quotes.addAll(await _fetchQuotes(source, targets));
           primaryOk = true;
         } on Object catch (e) {
+          if (e is ArgumentError) {
+            // requireHttps 抛的是 Error：scheme 写错属于编码错误，不是
+            // 一次可重试的网络失败。单独上报，不切源、不退避。
+            _onConfigurationError(e);
+            return;
+          }
           primaryError = e;
         }
       }
 
-      // 主链管不着的标的（美股）以及这轮漏掉的标的，由补位源补一次。
+      // 主链声明覆盖不到的市场（美股）以及这一轮没拿到的美股，由补位源补一次。
+      // 补位源只声明自己的 markets，主链漏掉的 A/H 行补不了，缺口由
+      // _coverageGap 按本轮实际结果说话。
       // 正常路径（主链把美股也拿全了）不会多发任何请求；补位失败已在
       // _fillFromBackup 里记日志，这里不再重复刷屏。
       await _fillFromBackup(quotes);
@@ -379,7 +400,7 @@ class PollingQuoteFeed implements QuoteFeed {
       _backoffLevel = 0;
       AppLog.i('轮询已恢复，退避清零');
     }
-    final String? gap = _coverageGap(_chain[_activeIndex]);
+    final String? gap = _coverageGap(_chain[_activeIndex], quotes);
     if (status.value != FeedStatus.connected || lastError.value != gap) {
       if (status.value != FeedStatus.connected) {
         AppLog.i('轮询成功：${_chain[_activeIndex].displayName}');
@@ -399,9 +420,17 @@ class PollingQuoteFeed implements QuoteFeed {
       return;
     }
     final int nowMs = _now().millisecondsSinceEpoch;
+    // 在途请求用的是 await 之前的订阅快照；落地时订阅可能已被删改。
+    // 按「当前」订阅过滤，否则旧标的会重新写回棘轮与 UI。
+    final Set<String> subscribed = <String>{
+      for (final StockConfig s in _stocks) s.key,
+    };
     final List<Quote> applied = <Quote>[];
     for (final Quote quote in quotes) {
       final String key = StockConfig.keyOf(quote.code, quote.region);
+      if (!subscribed.contains(key)) {
+        continue;
+      }
       final int ms = quote.timestamp?.millisecondsSinceEpoch ?? nowMs;
       // 未来时间戳必须挡在棘轮**之前**：`_lastQuoteMs` 只增不减、没有 TTL，
       // 一个被 DateTime 归一化出来的「2027 年」脏时间戳会让这只票此后每一轮
@@ -424,9 +453,21 @@ class PollingQuoteFeed implements QuoteFeed {
     }
   }
 
+  /// 数据源配置错误（目前只有 [requireHttps] 抛的 ArgumentError）。
+  ///
+  /// 它是编码错误，不是网络失败：不累计失败次数、不切源、不退避。
+  /// 只把事实写进 [lastError]，让排查方向停在「URI 配错了」。
+  void _onConfigurationError(Object error) {
+    if (_disposed || _paused) {
+      return;
+    }
+    lastError.value = '数据源配置错误：${_describe(error)}';
+  }
+
   void _onFailure(Object error, {bool backupComplete = false}) {
-    // 同 _onSuccess：dispose 后只许安静退出
-    if (_disposed) {
+    // 与 _onSuccess / _applyQuotes 同一条纪律：pause 只停定时器，
+    // 在途请求照样落地。后台期间的失败也不得推进切源、退避或写提示。
+    if (_disposed || _paused) {
       return;
     }
     _failStreak++;
@@ -515,7 +556,7 @@ class PollingQuoteFeed implements QuoteFeed {
   ///
   /// 第二个分支是**补位源自己的健康度**：配置了补位不等于补得上。连续失败
   /// 达到阈值时也要说话，否则「美股卡又不动了」会退回到「神不知鬼不觉」。
-  String? _coverageGap(PollingSource source) {
+  String? _coverageGap(PollingSource source, List<Quote> quotes) {
     final int missing = _stocks
         .where((StockConfig s) => !_canServe(s, source))
         .length;
@@ -525,6 +566,18 @@ class PollingQuoteFeed implements QuoteFeed {
     final PollingSource? backup = regionBackup;
     if (backup != null && _backupFailStreak >= AppConfig.pollFailoverAfter) {
       return '${backup.displayName}（备用源）连续失败，它负责的标的会停在旧价';
+    }
+    // 市场声明上的覆盖 ≠ 本轮真的拿到了。补位源只供自己声明的市场，
+    // 主链偶发漏掉的 A/H 行既补不了、也不会被上面的「声明缺口」发现；
+    // 不在这里说话，整轮就会被判成功且界面显示「已连接」。
+    final Set<String> got = <String>{
+      for (final Quote q in quotes) StockConfig.keyOf(q.code, q.region),
+    };
+    final int skipped = _stocks
+        .where((StockConfig s) => !got.contains(s.key))
+        .length;
+    if (skipped > 0) {
+      return '本轮有 $skipped 只标的没返回行情，它们会停在旧价';
     }
     return null;
   }

@@ -57,7 +57,11 @@ String? noteFor(double value, double prevClose) {
 ///
 /// 实时报价里 `open/high/low/price` 正好是当日那根的四个价，`volume` 是
 /// 当日累计量，直接可用；成交量单位为股，与 K 线一致。
-List<Kline> patchTodayBar(List<Kline> bars, Quote quote) {
+/// [adjusted] 为 true 表示序列是**前复权且自带当日 bar**（腾讯 qfq）：
+/// 当日那根只用报价刷新 close / volume，high / low 保留 K 线口径，
+/// 免得把未复权报价的极值混进复权序列，画出一根假影线。
+List<Kline> patchTodayBar(List<Kline> bars, Quote quote,
+    {bool adjusted = false}) {
   if (!quote.hasData || quote.timestamp == null) {
     return bars;
   }
@@ -93,8 +97,10 @@ List<Kline> patchTodayBar(List<Kline> bars, Quote quote) {
       Kline(
         time: today,
         open: bars.last.open, // 开盘价以 K 线为准，报价的开盘价偶尔为 0
-        high: math.max(bars.last.high, bar.high),
-        low: bar.low < bars.last.low ? bar.low : bars.last.low,
+        high: adjusted ? bars.last.high : math.max(bars.last.high, bar.high),
+        low: adjusted
+            ? bars.last.low
+            : (bar.low < bars.last.low ? bar.low : bars.last.low),
         close: bar.close,
         volume: bar.volume > 0 ? bar.volume : bars.last.volume,
       ),

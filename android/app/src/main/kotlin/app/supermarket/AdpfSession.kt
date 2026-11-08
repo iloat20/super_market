@@ -45,8 +45,10 @@ class AdpfSession(private val context: Context) {
         return created.start(targetNanos)
     }
 
-    fun report(workNanos: Long, targetNanos: Long) {
-        impl?.report(workNanos, targetNanos)
+    /** @return null 表示成功；非 null 是必须回传给 Dart 的错误描述。 */
+    fun report(workNanos: Long, targetNanos: Long): String? {
+        val impl = this.impl ?: return "session-not-started"
+        return impl.report(workNanos, targetNanos)
     }
 
     fun stop() {
@@ -82,9 +84,10 @@ class AdpfSession(private val context: Context) {
             return true
         }
 
-        fun report(workNanos: Long, targetNanos: Long) {
-            val s = session ?: return
-            if (workNanos <= 0) return
+        /** @return null 表示成功；非 null 是要回传给 Dart 的错误描述。 */
+        fun report(workNanos: Long, targetNanos: Long): String? {
+            val s = session ?: return "session-closed"
+            if (workNanos <= 0) return null
             // 目标时长跟着刷新率变（60/90/120 档），变化时才发 Binder 调用
             if (targetNanos > 0 && targetNanos != lastTarget) {
                 if (runCatching { s.updateTargetWorkDuration(targetNanos) }.isSuccess) {
@@ -93,10 +96,13 @@ class AdpfSession(private val context: Context) {
             }
             val result = runCatching { s.reportActualWorkDuration(workNanos) }
             if (result.isFailure) {
-                // 会话被系统回收（EPIPE）时继续调用只会刷日志，直接关掉等下次重启
+                // 会话被系统回收（EPIPE）时继续调用只会刷日志，直接关掉等下次重启。
+                // 失败必须回传：Dart 侧的 catchError / 失败计数 / 自愈全靠这一条。
                 log("reportActualWorkDuration 失败，关闭会话：${result.exceptionOrNull()}")
                 stop()
+                return "report-failed: ${result.exceptionOrNull()?.message}"
             }
+            return null
         }
 
         fun stop() {

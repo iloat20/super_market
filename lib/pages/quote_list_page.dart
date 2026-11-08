@@ -211,48 +211,84 @@ class _QuoteListPageState extends State<QuoteListPage>
     return null;
   }
 
+  /// 弹层重入闸门：快速连点不该叠多个 modal、并发存盘或并发 setState。
+  bool _sheetOpen = false;
+
   /// 用户改完订阅列表后：存盘 → 让服务层按新列表重新轮询。
   Future<void> _openWatchlist() async {
-    unawaited(haptics.selectionClick());
-    final List<StockConfig>? next = await showWatchlistSheet(
-      context,
-      stocks: _stocks,
-      directory: _directory,
-      // 公开源配额：实测 30 只一次批量请求 OK
-      quota: AppConfig.publicSourceMaxStocks,
-    );
-    if (!mounted || next == null || listEquals(next, _stocks)) {
+    if (_sheetOpen) {
       return;
     }
-
-    final List<StockConfig> previous = _stocks;
-    setState(() {
-      _stocks = next;
-      _syncNotifiers();
-    });
-    final bool saved = await _watchlist.save(next);
-    if (!saved) {
-      // 存盘失败必须**当场**回退并说明：原来这里 await 一个吞掉异常的
-      // `save`，界面按「已提交」推进，用户要到下次启动才发现自选回退。
-      // 宁可现在把改动撤回去（界面 = 磁盘 = 真相），也不要给一个
-      // 只有重启才暴露的假成功。
-      if (!mounted) {
+    _sheetOpen = true;
+    try {
+      unawaited(haptics.selectionClick());
+      final List<StockConfig>? next = await showWatchlistSheet(
+        context,
+        stocks: _stocks,
+        directory: _directory,
+        // 公开源配额：实测 30 只一次批量请求 OK
+        quota: AppConfig.publicSourceMaxStocks,
+      );
+      if (!mounted || next == null || listEquals(next, _stocks)) {
         return;
       }
+
+      final List<StockConfig> previous = _stocks;
       setState(() {
-        _stocks = previous;
+        _stocks = next;
         _syncNotifiers();
       });
-      _service.updateStocks(previous);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('订阅未能保存到本地，已撤回这次修改'),
-          duration: Duration(seconds: 4),
-        ),
-      );
+      final bool saved = await _watchlist.save(next);
+      if (!saved) {
+        // 存盘失败必须**当场**回退并说明：原来这里 await 一个吞掉异常的
+        // `save`，界面按「已提交」推进，用户要到下次启动才发现自选回退。
+        // 宁可现在把改动撤回去（界面 = 磁盘 = 真相），也不要给一个
+        // 只有重启才暴露的假成功。
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _stocks = previous;
+          _syncNotifiers();
+        });
+        _service.updateStocks(previous);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('订阅未能保存到本地，已撤回这次修改'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+      _service.updateStocks(next);
+    } finally {
+      _sheetOpen = false;
+    }
+  }
+
+  /// 详情弹层走同一个闸门，避免连点叠出多个详情页 / 多份 KlineLoader。
+  Future<void> _openDetail(
+    StockConfig stock,
+    ValueNotifier<Quote> notifier,
+  ) async {
+    if (_sheetOpen) {
       return;
     }
-    _service.updateStocks(next);
+    _sheetOpen = true;
+    try {
+      await showQuoteDetailSheet(
+        context,
+        stock: stock,
+        quote: notifier,
+        loader: widget.klineLoader,
+        // 来源名必须读**运行期**的 feed：主备切换是静默的，弹层若用
+        // 编译期常量，切到腾讯后页脚仍写「新浪财经」。
+        sourceLabel: () => _service.sourceLabel,
+        now: _clock,
+      );
+    } finally {
+      _sheetOpen = false;
+    }
   }
 
   /// 行情到达计数：太极的「转一格」由它驱动（见 `TaijiMark` 的类注释）。
@@ -442,18 +478,7 @@ class _QuoteListPageState extends State<QuoteListPage>
                     stock: stock,
                     quote: notifier,
                     now: _clock,
-                    onTap: () => showQuoteDetailSheet(
-                      context,
-                      stock: stock,
-                      quote: notifier,
-                      loader: widget.klineLoader,
-                      // 来源名必须读**运行期**的 feed：主备切换是静默的，
-                      // 弹层若用编译期常量，切到腾讯后页脚仍写「新浪财经」
-                      // （`QuoteFeed.sourceLabel` 这个接口本来就是为此存在的，
-                      // 之前全仓没有生产消费点）。
-                      sourceLabel: () => _service.sourceLabel,
-                      now: _clock,
-                    ),
+                    onTap: () => _openDetail(stock, notifier),
                   );
                 },
               ),

@@ -50,9 +50,25 @@ class TencentSource implements PollingSource {
   static String wireSymbol(StockConfig stock) => switch (stock.region) {
     'HK' => 'hk${stock.code}',
     'US' => 'us${stock.code.toUpperCase()}'
-        '${stock.exchange == 'NYSE' ? '.N' : '.OQ'}',
+        '${_usSuffix(stock.exchange)}',
     _ => '${stock.region.toLowerCase()}${stock.code}',
   };
+
+  /// 交易所后缀按大写规范化；NYSE / NASDAQ 之外**不猜**。
+  ///
+  /// 留空后缀会让服务端明确回 `v_pv_none_match`，而不是悄悄按 NASDAQ 试
+  /// 一次——后者会把「交易所没验证过」伪装成「这只票没行情」。
+  static String _usSuffix(String exchange) {
+    final String e = exchange.trim().toUpperCase();
+    if (e.isEmpty) {
+      return '.OQ'; // 既有兜底：搜索侧保证 US 条目必带交易所
+    }
+    return switch (e) {
+      'NYSE' => '.N',
+      'NASDAQ' => '.OQ',
+      _ => '',
+    };
+  }
 
   /// `https://qt.gtimg.cn/q=sz000001,sh600519`
   @override
@@ -125,7 +141,7 @@ class TencentSource implements PollingSource {
       }
 
       final Quote? quote = _toQuote(f, stock);
-      if (quote != null) {
+      if (quote != null && quote.hasFiniteNumbers) {
         out.add(quote);
       }
     }
@@ -185,7 +201,7 @@ class TencentSource implements PollingSource {
           : hk
           ? turnoverWan
           : turnoverWan * 10000,
-      tradingStatus: TradingStatus.normal,
+      tradingStatus: TradingStatus.unknown,
       timestamp: ts,
       type: 'quote',
       source: QuoteSource.socket,

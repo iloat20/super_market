@@ -55,6 +55,9 @@ VoidCallback installErrorHooks({ErrorReport? report}) {
 
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     sink('Uncaught async: $error', stack);
+    // 保留上一任：引擎或第三方 SDK 可能已经在这里装了处理器，读走它却
+    // 从不调用等于把别人的上报整体吞掉。
+    previousPlatform?.call(error, stack);
     // true = 已处理，不再让引擎把同一条错误再上报一次（否则线上会双计）
     return true;
   };

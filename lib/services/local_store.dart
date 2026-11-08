@@ -251,9 +251,19 @@ class FileKeyValueStore implements KeyValueStore {
   @override
   Future<void> remove(String key) async {
     final Map<String, String> data = await _load();
-    if (data.remove(key) == null) {
+    final String? removed = data.remove(key);
+    if (removed == null) {
       return;
     }
-    await _enqueueWrite();
+    try {
+      await _enqueueWrite();
+    } on Object {
+      // 与 write 同款回滚：落盘失败时内存缓存不能比磁盘「新」，
+      // 否则下一次无关的写盘会把这笔没删成的状态顺手带下去。
+      if (!data.containsKey(key)) {
+        data[key] = removed;
+      }
+      rethrow;
+    }
   }
 }

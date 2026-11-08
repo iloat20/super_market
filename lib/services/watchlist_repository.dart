@@ -52,6 +52,11 @@ class WatchlistRepository {
         if (parsed.isNotEmpty) {
           return parsed;
         }
+        // 合法但为空的存档 = 用户清空了自选。它与「没配过」「存档损坏」
+        // 不同，必须原样还原，不能继续往下走 legacy / 默认列表。
+        if (raw.trim() == '[]') {
+          return const <StockConfig>[];
+        }
       }
       // 新文件里没有（全新安装 / 首次升级到「用户数据与源解耦」这一版）：
       // 去旧文件名里找一次，找到就搬过来。不搬的话，用户在升级后会看到
@@ -113,11 +118,8 @@ class WatchlistRepository {
   }
 
   Future<void> _save(List<StockConfig> stocks) async {
-    if (stocks.isEmpty) {
-      // 空列表等于「没有订阅」，语义上和没配过一样，直接清掉存档
-      await _store.remove(storageKey);
-      return;
-    }
+    // 空列表是用户主动清空的**有效状态**，必须落盘成 "[]"。
+    // 删键会让 load 把它当成「全新安装」，重启后默认列表凭空长回来。
     await _store.write(storageKey, encode(stocks));
   }
 
@@ -168,10 +170,12 @@ class WatchlistRepository {
       // 代码形状必须与市场一致：港股 5 位、美股 1–5 位大写字母、沪深 6 位。
       // 不做这道校验的话，`12345@SH` 这种残缺条目会被当成 A 股放进去，
       // 行情接口返回空、界面上是一张永远 `--` 的卡。
+      // 只判长度会让 5 位字母代码（美股形态）混进港股：isValidCode 的
+      // 美股快速放行与 HK 的「长度 == 5」同时成立。形状必须按市场判数字。
       final bool shapeOk = switch (region) {
-        'HK' => code.length == 5,
+        'HK' => code.length == 5 && int.tryParse(code) != null,
         'US' => _usCodePattern.hasMatch(code),
-        _ => code.length == 6,
+        _ => code.length == 6 && int.tryParse(code) != null,
       };
       // 美股还必须带**已验证的交易所**：腾讯写法要按交易所拼后缀
       // （NASDAQ→.OQ、NYSE→.N），没有或没验证过（AMEX）的条目去了也是

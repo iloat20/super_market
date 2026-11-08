@@ -115,8 +115,9 @@ const int _maxRawBytes = 512 * 1024;
 /// （实网探针可证），故按现状接受；将来真出现重定向，再谈 `followRedirects = false`
 /// 或换传输层，不要提前为它加复杂度。
 ///
-/// 抛 [ArgumentError] 而不是返回 null：调用方写错 scheme 属于**编码错误**，
-/// 应该在开发期就炸，不该被当成一次可重试的网络失败吞掉。
+/// 抛 [ArgumentError] 而不是返回 null：调用方写错 scheme 属于**编码错误**。
+/// 轮询层会把它识别成「数据源配置错误」单独上报，不累计失败、不切源、
+/// 不退避，也不会被当成一次可重试的网络失败吞掉。
 @visibleForTesting
 Uri requireHttps(Uri uri) {
   if (uri.scheme != 'https') {
@@ -145,18 +146,27 @@ Uri requireHttps(Uri uri) {
 /// 请求抛异常时把池标记为待重建（[resetSharedHttpClient] 是测试用的立即
 /// 清场版），下一个新请求进来时重建；轮询层本来就有失败重试，
 /// 最坏也只是多等一轮。
-/// 请求抛异常时只把池标记为「待重建」，**立即关闭会把并发在途的好请求
+/// 请求抛异常时只把池标记为「待重建」，**立即强制关闭会把并发在途的好请求
 /// 一起击落**（目录 6 并发抓取时一个坏请求会放大成一批失败）。
-/// 池真正被丢弃的时机是下一个新请求进来时——那时旧池上已没有会受伤的人。
+/// 池真正被丢弃的时机是「下一个新请求进来、且旧池上没有任何在途请求」；
+/// 关闭用非强制的 close()，旧 client 会等在途请求自然结束。
 HttpClient? _sharedClient;
 bool _sharedClientDirty = false;
 
-HttpClient get _httpClient {
-  if (_sharedClientDirty) {
-    _sharedClient?.close(force: true);
-    _sharedClient = null;
-    _sharedClientDirty = false;
+/// 共享池上仍在跑的请求数（跨模块统计，不只是轮询）。
+int _sharedClientInFlight = 0;
+
+/// 只在没有在途请求时丢弃坏池；有人在用就留到下一次空闲的新请求。
+void _rebuildSharedClientIfIdle() {
+  if (!_sharedClientDirty || _sharedClientInFlight > 0) {
+    return;
   }
+  _sharedClient?.close();
+  _sharedClient = null;
+  _sharedClientDirty = false;
+}
+
+HttpClient get _httpClient {
   return _sharedClient ??= HttpClient()
     ..connectionTimeout = AppConfig.restTimeout
     // 空闲 15s 就回收：轮询间隔 3s，正常情况下连接一直是热的；
@@ -184,6 +194,8 @@ Future<HttpRawResponse> defaultHttpGetBytes(
 ) async {
   // 闸门放在 try 之前：scheme 写错是编码错误，不该被当成可重试的网络失败。
   final Uri target = requireHttps(uri);
+  _rebuildSharedClientIfIdle();
+  _sharedClientInFlight++;
   try {
     final HttpClientRequest req = await _httpClient
         .getUrl(target)
@@ -213,8 +225,10 @@ Future<HttpRawResponse> defaultHttpGetBytes(
         : HttpRawResponse(statusCode: res.statusCode, body: bytes);
   } on Exception catch (e) {
     AppLog.e('HTTP 请求失败 $uri: $e');
-    _sharedClientDirty = true; // 池里可能有坏连接：下个新请求前重建
+    _sharedClientDirty = true; // 池里可能有坏连接：空闲后重建
     rethrow;
+  } finally {
+    _sharedClientInFlight--;
   }
 }
 
@@ -244,6 +258,8 @@ Future<HttpJsonResponse> defaultHttpGet(
   Map<String, String> headers,
 ) async {
   final Uri target = requireHttps(uri);
+  _rebuildSharedClientIfIdle();
+  _sharedClientInFlight++;
   try {
     final HttpClientRequest req = await _httpClient
         .getUrl(target)
@@ -260,7 +276,9 @@ Future<HttpJsonResponse> defaultHttpGet(
     return HttpJsonResponse(statusCode: res.statusCode, body: body);
   } on Exception catch (e) {
     AppLog.e('REST 请求失败 $uri: $e');
-    _sharedClientDirty = true; // 池里可能有坏连接：下个新请求前重建
+    _sharedClientDirty = true; // 池里可能有坏连接：空闲后重建
     rethrow;
+  } finally {
+    _sharedClientInFlight--;
   }
 }

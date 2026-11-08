@@ -28,6 +28,10 @@ Future<void> _applyToPlatform(int fps, {required bool fixed}) async {
     // 没有原生实现（桌面、widget 测试），静默
   } on PlatformException catch (e) {
     AppLog.w('frameRate: 请求 ${fps}Hz 被拒绝（${e.code}）');
+  } on Object catch (e) {
+    // 原生侧参数编码 / 类型转换抛出的异常不在这两类里；`_sink` 被
+    // unawaited，漏出去就是一条 unhandled async error，且 Future 永不完成。
+    AppLog.w('frameRate: 请求 ${fps}Hz 出现未预期异常（$e）');
   }
 }
 

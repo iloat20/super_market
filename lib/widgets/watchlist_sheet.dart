@@ -104,6 +104,9 @@ class _WatchlistSheetState extends State<_WatchlistSheet> {
     _debounce?.cancel();
 
     if (query.isEmpty) {
+      // 清空输入也必须作废旧请求：_search 已经发出去的远端调用不会被
+      // cancel，若 _seq 不变，它返回时仍会 setState 把上一次结果写回来。
+      _seq++;
       setState(() {
         _hint = null;
         _remote = const <StockConfig>[];

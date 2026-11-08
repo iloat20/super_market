@@ -74,14 +74,26 @@ class EastmoneyUsSource implements PollingSource {
   /// 只取用得到的字段。`f14`（名称）不取：`Quote` 不带名称，传了是白流量。
   static const String _fields = 'f2,f3,f4,f5,f6,f12,f13,f15,f16,f17,f18,f124';
 
-  /// 订阅标的 → 东财 secid（`105.AAPL`）。
+  /// 订阅标的 → 东财 secid（`105.AAPL`）。交易所没验证过时用 `0`
+  /// （东财不存在的市场号），让服务端明确不匹配，而不是伪装成 NASDAQ。
   static String secidOf(StockConfig stock) =>
-      '${_marketOf(stock.exchange)}.${stock.code.toUpperCase()}';
+      '${marketOf(stock.exchange) ?? 0}.${stock.code.toUpperCase()}';
 
-  /// NYSE 与 NASDAQ 之外**不猜**：AMEX / 优先股 / 多类股在存档层就被挡掉了
-  /// （`WatchlistRepository.decode`），真出现未知交易所时按 NASDAQ 试一次——
-  /// 与腾讯 `.OQ` 的默认口径一致。
-  static int _marketOf(String exchange) => exchange == 'NYSE' ? 106 : 105;
+  /// 交易所 → 东财市场号；大小写 / 空格归一化，未知值返回 null。
+  ///
+  /// 空值仍按 NASDAQ 兜底（搜索侧保证 US 条目必带交易所，这里只是既有
+  /// 兼容）；**非空但未知**的值不猜，交给调用方按「无匹配」处理。
+  static int? marketOf(String exchange) {
+    final String e = exchange.trim().toUpperCase();
+    if (e.isEmpty) {
+      return 105;
+    }
+    return switch (e) {
+      'NYSE' => 106,
+      'NASDAQ' => 105,
+      _ => null,
+    };
+  }
 
   @override
   Uri batchQuoteUri(List<StockConfig> stocks) =>
@@ -141,7 +153,7 @@ class EastmoneyUsSource implements PollingSource {
         continue; // 没订阅的代码（服务端不该给，给了也只丢）
       }
       final Quote? quote = _toQuote(row, stock);
-      if (quote != null) {
+      if (quote != null && quote.hasFiniteNumbers) {
         out.add(quote);
       }
     }
@@ -176,7 +188,7 @@ class EastmoneyUsSource implements PollingSource {
       low: _num(row['f16']) ?? 0,
       volume: _num(row['f5']) ?? 0, // 股，不换算
       turnover: _num(row['f6']) ?? 0, // USD 元，不换算
-      tradingStatus: TradingStatus.normal,
+      tradingStatus: TradingStatus.unknown,
       timestamp: ts,
       type: 'quote',
       source: QuoteSource.socket, // 轮询拿到的就是此刻的最新报价
@@ -192,8 +204,14 @@ class EastmoneyUsSource implements PollingSource {
     if (seconds == null || seconds <= 0) {
       return null;
     }
-    final int ms = (seconds * 1000).round();
-    final DateTime t = DateTime.fromMillisecondsSinceEpoch(ms);
+    final double ms = seconds * 1000;
+    // `_num` 只挡输入里的 Infinity；1e308 * 1000 会**溢出**成 Infinity，
+    // 而 Infinity.round() 抛 UnsupportedError（Error，parseBatchQuotes
+    // 只拦 FormatException）。同时把 2100 年之后的毫秒值挡在 round 之前。
+    if (!ms.isFinite || ms > 4102444800000) {
+      return null;
+    }
+    final DateTime t = DateTime.fromMillisecondsSinceEpoch(ms.round());
     if (t.year < 2000 || t.year > 2100) {
       return null;
     }

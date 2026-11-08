@@ -100,6 +100,10 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
   bool _loading = true;
   String? _error;
 
+  /// 在途请求的代际：同一 mode 的多个请求（快速切 tab / 连点重试）也要
+  /// 只认最后一个，光比 `_mode != asked` 挡不住它们乱序回写。
+  int _loadSeq = 0;
+
   // ==================== 走势补丁的记忆化 ====================
   //
   // `patchTodayBar` / `patchLatestPrice` 每次调用都返回**新 List**，而
@@ -134,7 +138,13 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
     }
     _barsSrc = src;
     _barsFor = q;
-    return _bars = patchTodayBar(src, q);
+    // qfq 序列自带当日实时 bar：仍用报价刷新 close / volume 保持实时性，
+    // 但 high / low 必须留在 K 线口径，否则两种价格基准混出一根假影线。
+    return _bars = patchTodayBar(
+      src,
+      q,
+      adjusted: _daily?.includesToday ?? false,
+    );
   }
 
   /// 分时点序列（末点被实时价覆盖），输入没变就复用同一个 List。
@@ -169,6 +179,7 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
 
   Future<void> _load() async {
     final ChartMode asked = _mode;
+    final int seq = ++_loadSeq;
     setState(() {
       _loading = true;
       _error = null;
@@ -178,8 +189,8 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
       final KlineResult<IntradayPoint> r = await _loader.loadIntraday(
         widget.stock,
       );
-      if (!mounted || _mode != asked) {
-        return; // 用户已经切走了，别用旧结果覆盖新图
+      if (!mounted || _mode != asked || seq != _loadSeq) {
+        return; // 用户切走了，或已有更新的同 mode 请求，别用旧结果覆盖新图
       }
       setState(() {
         _intraday = r;
@@ -188,7 +199,7 @@ class _QuoteDetailSheetState extends State<_QuoteDetailSheet> {
       });
     } else {
       final KlineResult<Kline> r = await _loader.loadDaily(widget.stock);
-      if (!mounted || _mode != asked) {
+      if (!mounted || _mode != asked || seq != _loadSeq) {
         return;
       }
       setState(() {
@@ -493,9 +504,11 @@ class _ChartSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 与 painter 同用过滤后的有效点数：接口返回「非空但全无效」时，
+    // 这里要判为空并显示错误占位，而不是画出一张空白图。
     final bool empty = mode == ChartMode.intraday
-        ? points.length < 2
-        : bars.isEmpty;
+        ? points.where((IntradayPoint p) => p.isValid).length < 2
+        : bars.where((Kline k) => k.isValid).isEmpty;
 
     // 美股：走势不可用就**直接不显示**（2026-11-05 用户拍板）。A/H 的
     // 「点此重试」占位对美股不适用——分时收盘必空是常态而非故障，一个

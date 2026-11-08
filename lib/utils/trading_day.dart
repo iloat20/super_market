@@ -28,8 +28,25 @@ library;
 /// 对「时段判定」没有影响；对「交易日」也只在北京 12:00–13:00 这一小时里
 /// 才可能跨日（见 [tradingDayOf] 的测试）。
 DateTime easternWallClock(DateTime beijing) {
-  final DateTime edt = beijing.subtract(const Duration(hours: 12));
-  return _inUsDst(edt) ? edt : beijing.subtract(const Duration(hours: 13));
+  final DateTime edt = _minusHours(beijing, 12);
+  return _inUsDst(edt) ? edt : _minusHours(beijing, 13);
+}
+
+/// 纯字段偏移：借 UTC 标记做算术，再还原成本地标记。
+///
+/// 直接对本地标记 `DateTime` 调 `subtract`，在设备本地时区跨夏令时换制点
+/// 时字段偏移会不等于传入的小时数（Dart 会按新的 UTC offset 重算字段）。
+/// 这里的对象只承载「挂钟字段」，不该被设备时区牵着走。
+DateTime _minusHours(DateTime t, int hours) {
+  final DateTime utc = DateTime.utc(
+    t.year, t.month, t.day, t.hour, t.minute, t.second,
+    t.millisecond, t.microsecond,
+  );
+  final DateTime shifted = utc.subtract(Duration(hours: hours));
+  return DateTime(
+    shifted.year, shifted.month, shifted.day, shifted.hour, shifted.minute,
+    shifted.second, shifted.millisecond, shifted.microsecond,
+  );
 }
 
 /// 某个瞬间在 [region] 市场所处的**交易日**（零点；只有年月日有意义）。
@@ -47,13 +64,15 @@ bool _inUsDst(DateTime et) {
   if (et.month > 3 && et.month < 11) {
     return true;
   }
-  // 3 月：第二个周日（第一个周日 + 7）当天起
+  // 3 月：第二个周日**当地 02:00** 起（此前仍是 EST）
   if (et.month == 3) {
-    return et.day >= _firstSundayOf(et.year, 3) + 7;
+    final int switchDay = _firstSundayOf(et.year, 3) + 7;
+    return et.day > switchDay || (et.day == switchDay && et.hour >= 2);
   }
-  // 11 月：第一个周日当天 02:00 止，整天按冬令时算（02:00 前的歧义无关痛痒）
+  // 11 月：第一个周日**当地 02:00** 止（此后是 EST）
   if (et.month == 11) {
-    return et.day < _firstSundayOf(et.year, 11);
+    final int switchDay = _firstSundayOf(et.year, 11);
+    return et.day < switchDay || (et.day == switchDay && et.hour < 2);
   }
   return false; // 12/1/2 月恒为冬令时
 }

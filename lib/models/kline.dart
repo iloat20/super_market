@@ -80,6 +80,12 @@ class const KlineResult<T>({
 
   /// 全部源都失败时的原因；拿到数据时为 null
   final String? error,
+
+  /// 这条日线序列**本身已含当日实时 bar**（腾讯 `qfq` 含当日且实时刷新）。
+  ///
+  /// 为 true 时 UI 不得再用未复权的实时报价去 patch 当日那根：两种价格
+  /// 基准混进一根蜡烛会画出假影线，MA 也会在混合基准上求值。
+  final bool includesToday = false,
 }) {
   const KlineResult.failed(String error)
     : this(items: const <Never>[], sourceId: '', error: error);

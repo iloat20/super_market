@@ -87,6 +87,22 @@ class Quote {
     tradingStatus: TradingStatus.unknown,
   );
 
+  /// 所有数值字段都是有限数。
+  ///
+  /// 输入字段大多已被各源的 `_num` 挡过 NaN / Infinity，但 [change] /
+  /// [changePercent] 是**派生值**：一个有限却极大的现价仍能让
+  /// `change / prevClose * 100` 溢出成 Infinity。解析层在入库前统一把关。
+  bool get hasFiniteNumbers =>
+      price.isFinite &&
+      change.isFinite &&
+      changePercent.isFinite &&
+      previousClose.isFinite &&
+      open.isFinite &&
+      high.isFinite &&
+      low.isFinite &&
+      volume.isFinite &&
+      turnover.isFinite;
+
   /// 纯数字代码，如 000001
   final String code;
 
@@ -241,12 +257,21 @@ class Quote {
 bool shouldApplyQuote(Quote current, Quote incoming) {
   if (!incoming.hasData || !incoming.price.isFinite) {
     // 空数据永远不覆盖已有行情；非有限价格同样不行——hasData 对
-    // Infinity 是 true（∞ > 0），漏过去会让 formatPrice 的
-    // toStringAsFixed 在 build 里抛 UnsupportedError（R-05）
+    // Infinity 是 true（∞ > 0）。Dart 3.13 实测 Infinity.toStringAsFixed(2)
+    // 返回 "Infinity" 而非抛异常，但会让卡片显示 Infinity 或撑破布局（R-05）。
     return false;
+  }
+  if (!incoming.hasFiniteNumbers) {
+    return false; // 派生涨跌幅溢出等：整条报价不可用
   }
   if (!current.hasData) {
     return true; // 首屏填充：当前没数据，直接接受
+  }
+  if (incoming.tradingStatus == TradingStatus.unknown &&
+      current.tradingStatus.isAbnormal) {
+    // 切到不提供交易状态的源时，别把已知的停牌 / 退市角标抹掉。
+    // 源明确给出 normal（如新浪 A 股复牌）时不受这条限制。
+    return false;
   }
   final DateTime? mine = current.timestamp;
   final DateTime? theirs = incoming.timestamp;

@@ -152,7 +152,7 @@ class SinaSource implements PollingSource {
           : symbol.startsWith('gb_')
           ? _toUsQuote(f, stock)
           : _toQuote(f, stock);
-      if (quote != null) {
+      if (quote != null && quote.hasFiniteNumbers) {
         out.add(quote);
       }
     }
@@ -276,7 +276,7 @@ class SinaSource implements PollingSource {
       low: _num(f[5]) ?? 0,
       volume: _num(f[12]) ?? 0, // 股，不换算
       turnover: _num(f[11]) ?? 0, // HKD 元，不换算
-      tradingStatus: TradingStatus.normal,
+      tradingStatus: TradingStatus.unknown,
       timestamp: ts,
       type: 'quote',
       source: QuoteSource.socket,
@@ -327,7 +327,7 @@ class SinaSource implements PollingSource {
       low: _num(f[7]) ?? 0,
       volume: _num(f[10]) ?? 0, // 股，不换算
       turnover: _num(f[30]) ?? 0, // USD 元，不换算
-      tradingStatus: TradingStatus.normal,
+      tradingStatus: TradingStatus.unknown,
       timestamp: ts,
       type: 'quote',
       source: QuoteSource.socket,

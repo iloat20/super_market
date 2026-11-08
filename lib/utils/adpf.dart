@@ -85,11 +85,23 @@ class AdpfMonitor with WidgetsBindingObserver {
     return hz > 0 ? hz : 60;
   }
 
+  /// 是否有一次 start 正卡在 Binder await 上（此时 [_active] 仍是 false）。
+  bool _starting = false;
+
+  /// 帧回调是否已注册：SchedulerBinding.removeTimingsCallback 对未注册的
+  /// 回调会断言失败，窗口期 stop 不能无条件移除。
+  bool _callbacksRegistered = false;
+
+  /// 代际令牌：stop / 新的 start 会 +1，让在途的 start 结果作废。
+  int _generation = 0;
+
   /// 建会话。失败（含通道不存在）就是静默不可用，不抛。
   Future<void> start() async {
-    if (_disposed || _active) {
+    if (_disposed || _active || _starting) {
       return;
     }
+    _starting = true;
+    final int generation = ++_generation;
     bool ok = false;
     try {
       ok =
@@ -101,14 +113,19 @@ class AdpfMonitor with WidgetsBindingObserver {
       // MissingPluginException（预览/测试）、PlatformException（ROM 拒绝）都走这里
       AppLog.d('ADPF 不可用：$e');
       return;
+    } finally {
+      _starting = false;
     }
-    if (!ok || _disposed) {
+    // pause 落在 Binder await 窗口时代际已变，这次结果必须作废：
+    // 否则会在后台把会话与帧回调重新挂上，且永远不会再有人来关它。
+    if (!ok || _disposed || generation != _generation) {
       return;
     }
     _active = true;
     _failures = 0;
     _resetBatch();
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
+    _callbacksRegistered = true;
     AppLog.i(
       'ADPF 已启用：目标 ${targetWorkNanos() ~/ 1000}µs'
       '（${_hz.toStringAsFixed(0)}Hz）',
@@ -117,11 +134,18 @@ class AdpfMonitor with WidgetsBindingObserver {
 
   /// 关会话。`stop()` 之后可以再 `start()`（回前台会走这条路）。
   Future<void> stop() async {
-    if (!_active) {
+    // 先作废在途的 start，再判断有没有东西要关。窗口期 _active 仍是
+    // false，但 Binder 那边随时可能刚建好会话，所以 _starting 也算「有会话」。
+    _generation++;
+    final bool hadSession = _active || _starting;
+    _active = false;
+    if (!hadSession) {
       return;
     }
-    _active = false;
-    SchedulerBinding.instance.removeTimingsCallback(_onTimings);
+    if (_callbacksRegistered) {
+      SchedulerBinding.instance.removeTimingsCallback(_onTimings);
+      _callbacksRegistered = false;
+    }
     _resetBatch();
     try {
       await _channel.invokeMethod<void>('adpf.stop');

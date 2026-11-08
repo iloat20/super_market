@@ -117,7 +117,11 @@ class KlineLoader {
     // 命中也要"续命"，否则淘汰策略退化成 FIFO：一个刚看过的股票
     // 会因为它是"最早插入的"而被踢出去
     _remember(key, hit);
-    return KlineResult<T>(items: hit.items.cast<T>(), sourceId: hit.sourceId);
+    return KlineResult<T>(
+      items: hit.items.cast<T>(),
+      sourceId: hit.sourceId,
+      includesToday: hit.includesToday,
+    );
   }
 
   Future<KlineResult<T>> _load<T>(
@@ -165,9 +169,15 @@ class KlineLoader {
             items: items.cast<Object>(),
             sourceId: source.id,
             expiresAt: _now().add(AppConfig.klineCacheTtl),
+            createdAt: _now(),
+            includesToday: _includesToday(source.id),
           ),
         );
-        return KlineResult<T>(items: items, sourceId: source.id);
+        return KlineResult<T>(
+          items: items,
+          sourceId: source.id,
+          includesToday: _includesToday(source.id),
+        );
       } on Object catch (e) {
         // R-02（review-2026-11-05）：必须连 Error 一起拦。上游接口形状突变时
         // 解析器/请求层可能抛 Error（RangeError、StateError 等），`on Exception`
@@ -260,7 +270,8 @@ class KlineLoader {
         // 恰好多了一个交易日 → 追加最新一根
         merged = <Kline>[...cached, latest];
       } else if (_sameBar(anchor, beforeLast) &&
-          _sameDay(latest.time, last.time)) {
+          _sameDay(latest.time, last.time) &&
+          !latest.time.isBefore(last.time)) {
         // 没有新交易日，只是最后一根被刷新（腾讯当日实时 bar）→ 覆盖
         merged = <Kline>[...cached.sublist(0, cached.length - 1), latest];
       } else {
@@ -278,9 +289,15 @@ class KlineLoader {
           items: merged.cast<Object>(),
           sourceId: source.id,
           expiresAt: _now().add(AppConfig.klineCacheTtl),
+          createdAt: _now(),
+          includesToday: _includesToday(source.id),
         ),
       );
-      return KlineResult<Kline>(items: merged, sourceId: source.id);
+      return KlineResult<Kline>(
+        items: merged,
+        sourceId: source.id,
+        includesToday: _includesToday(source.id),
+      );
     } on Object catch (e) {
       // 与 _load 同一条 R-02 纪律：Error 也要拦，增量失败只能是「回退」。
       AppLog.w('走势 $key：增量 ${source.id} 请求异常（$e），回退全量');
@@ -289,8 +306,10 @@ class KlineLoader {
   }
 
   /// 逐字段相同，而不只是同一天：价格/成交量的变化正是「复权重算」的信号。
+  /// 日期只按年月日归一化——解析器明确接受带时分秒 / 时区后缀的 `day`，
+  /// `DateTime ==` 会把同一交易日判成两根，增量因此永久回退全量。
   static bool _sameBar(Kline a, Kline b) =>
-      a.time == b.time &&
+      _sameDay(a.time, b.time) &&
       a.open == b.open &&
       a.high == b.high &&
       a.low == b.low &&
@@ -300,6 +319,9 @@ class KlineLoader {
   /// 日线的 DateTime 通常是当天 0 点，但不假设源一定不带时分秒。
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// 该源是否自带当日实时 bar（腾讯 qfq），用于给结果标记价格口径。
+  static bool _includesToday(String sourceId) => sourceId == 'tencent';
 }
 
 class _Entry<T> {
@@ -307,13 +329,25 @@ class _Entry<T> {
     required this.items,
     required this.sourceId,
     required this.expiresAt,
+    required this.createdAt,
+    required this.includesToday,
   });
 
   final List<T> items;
   final String sourceId;
   final DateTime expiresAt;
+  final DateTime createdAt;
+  final bool includesToday;
 
-  bool isExpired(DateTime now) => !now.isBefore(expiresAt);
+  bool isExpired(DateTime now) {
+    // expiresAt 是绝对墙钟。本地时间被调回时它成了远期未来，缓存会数小时
+    // 不刷新；宁可判过期重拉一次，也不要拿陈旧日线画图。
+    if (now.isBefore(createdAt)) {
+      return true;
+    }
+    // 与 isStale 同用开区间：恰好等于判决线时仍算新鲜。
+    return now.isAfter(expiresAt);
+  }
 }
 
 /// 默认过滤条件：全部支持。
