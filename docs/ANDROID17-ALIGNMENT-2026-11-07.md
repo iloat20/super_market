@@ -53,6 +53,10 @@
 python tool/verify_apk.py   # 目标 : ✓ targetSdk 37（期望 37 = Android 17）
 ```
 
+> 上面这段是 **vc35** 时抓的证据；2026-11-07 升到 **1.0.8+36** 后复核为
+> `versionCode='36' versionName='1.0.8'`，SDK 版本、包名、权限三项不变，
+> 本章的 Android 17 对齐结论不受影响。
+
 ---
 
 ## 二、硬性要求（不过就装不上 / 打不开）

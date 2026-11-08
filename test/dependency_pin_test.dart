@@ -12,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// 版本，而 premium 档的折射/rim/色散只有真机能验（flutter_tester 无
 /// Impeller）。按 docs/dep-liquid-glass.md 第四节走完升级 SOP（含真机
 /// 玻璃走查）后，改下面的常量并更新台账「版本履历」，测试才重新变绿。
-const String _pinnedLiquidGlass = '1.16.1';
+const String _pinnedLiquidGlass = '1.17.0';
 
 /// 从 pubspec.lock 的行里定点解析某包的锁定版本；找不到返回 null。
 ///
@@ -60,7 +60,7 @@ void main() {
     );
   });
 
-  // 红态等价证据：合成一份「升到 1.17.0」的 lock，解析出的版本不等于钉子
+  // 红态等价证据：合成一份「升到 1.18.0」的 lock，解析出的版本不等于钉子
   // ——证明任何漂移都会让第一条测试当场变红，守门不是摆设。
   test('合成漂移：lock 里版本变了必须能被解析出来（守门必红）', () {
     const String driftedLock = '''
@@ -72,7 +72,7 @@ packages:
       sha256: "0000"
       url: "https://pub.dev"
     source: hosted
-    version: "1.17.0"
+    version: "1.18.0"
   some_other_package:
     dependency: transitive
     description:
@@ -84,7 +84,7 @@ packages:
       driftedLock.split('\n'),
       'liquid_glass_widgets',
     );
-    expect(version, '1.17.0');
+    expect(version, '1.18.0');
     expect(version, isNot(_pinnedLiquidGlass),
         reason: '漂移版本 ≠ 钉子 → 第一条测试会红，SOP 被强制触发');
   });

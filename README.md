@@ -13,13 +13,13 @@ Flutter 自绘的液态玻璃界面。行情走**新浪财经（主）+ 腾讯�
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.0.7+35` |
+| 版本 | `1.0.8+36` |
 | 包名 / 显示名 | `app.supermarket` / 超级市场 |
 | 平台 | Android 7.0+（minSdk 24，targetSdk 37），只打 `arm64-v8a` |
-| 安装包 | **7.93 MB**（release：R8 + `.so` 压缩存储） |
+| 安装包 | **7.95 MB**（`8 331 292 B`，1.0.8+36；release：R8 + `.so` 压缩存储） |
 | 技术栈 | Flutter 3.47.9 / Dart 3.13.7；无状态管理库、无图表库 |
 | 运行时依赖 | `material_ui`（含 `cupertino_ui`）、`liquid_glass_widgets`、`path_provider`、`jni` / `jni_flutter` |
-| 规模 | `lib/` 53 文件 13.3k 行；`test/` 64 文件 12.8k 行、**490 条用例**（含 5 张 golden） |
+| 规模 | `lib/` 53 文件 13.3k 行；`test/` 67 文件 13.8k 行、**499 条用例**（含 5 张 golden） |
 
 ## 能力
 
@@ -56,8 +56,8 @@ python tool/verify_apk.py  # 装机前自检：ABI / targetSdk / 端点是否真
 
 ```bash
 flutter analyze                       # 必须 0 issue
-flutter test --exclude-tags preview   # 483 通过（CI 口径）
-flutter test                          # 490 通过（本机全量，含 5 张 golden）
+flutter test --exclude-tags preview   # 492 通过（CI 口径）
+flutter test                          # 499 通过（本机全量，含 5 张 golden）
 ```
 
 CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-latest**：golden harness
@@ -69,14 +69,14 @@ CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-lates
 | --- | --- |
 | 跑起来 / 排错 / 打包 | 三、跑起来 · 七、排错表 · 十、构建产物 |
 | 换数据源 | 二·九 数据源抽象 · 二·十 免费源实测 · 二·十一 切到公开源 · 二·十三 搜索 |
-| 改界面 / 玻璃 | 二·五 液态玻璃 · 二·二十 厚玻璃 · 二·三十四 边缘光学（v21 是当前档） |
+| 改界面 / 玻璃 | 二·五 液态玻璃 · 二·二十 厚玻璃 · 二·三十四 边缘光学（v21 是当前档） · **二·五十五 五控件 UIKit 校准（包内变更 / 本项目零曝光）** |
 | 市场支持 | 二·十五 港股 · 二·三十三 美股 · 二·二十九 时段角标 · 二·三十八 交易日历 |
 | 性能 | 二·二十三 / 二·二十四 · 二·三十七 · 二·四十五 / 二·四十六（Android 三个开关 + 自建 ADPF） · 二·四十七（Baseline Profile / App Startup） · `docs/PERF-*.md` |
 | 为什么这么写 | 一、iTick 协议事实 · 二·八 收盘快照 · 二·十二 走势图 · 二·二十七 来源判定 |
 | 审查 / 路线 | 九、已验证 / 未验证 · `docs/review-2026-11-05.md` · `docs/ROADMAP-2026-11-06.md` |
 | Android 17 对齐 | `docs/ANDROID17-ALIGNMENT-2026-11-07.md`（16KB 页 / edge-to-edge / 16 项行为变更逐条判定） |
 | 依赖 / 设计系统升级 | 二·四十三 Material/Cupertino 解耦（`material_ui` 1.10） · 二·四十二 Dart 新语法评估 · 二·四十四 3.13 新 lint 与格式化 |
-| 工具链 / 构建 | 二·四十八 AGP 9.2 首次升级 · **二·五十二 AGP 9.5.1 / Gradle 9.6.0 / KGP 2.4.21**（R8 分析器独立任务） |
+| 工具链 / 构建 | 二·四十八 AGP 9.2 首次升级 · 二·五十二 AGP 9.5.1 / KGP 2.4.21（R8 分析器独立任务） · **二·五十四 全量依赖盘点（Gradle 9.9.0 / 玻璃包 1.17.0）** |
 | 后续升级候选 | 二·五十一 三条路线（防守 / 平台对齐 / 验证能力） + 明确不做 · `tool/probe_http3.sh` / `tool/probe_brotli.sh` 端点探针 |
 | 走势 / 缓存 | 二·十二 走势图 · **二·五十三 增量日线**（TTL 过期后拉 2 根拼 1 根，`tool/probe_kline_delta.py` 可复跑） |
 
@@ -92,7 +92,7 @@ CI（`.github/workflows/ci.yml`）只跑前两条，且必须是 **windows-lates
 | 项 | 当前值 |
 | --- | --- |
 | 行情链路 | 新浪主 + 腾讯备（A/H）+ 东财补位（美股），3s HTTP 轮询；**零凭证、无 WebSocket、无 iTick**。K 线走新浪 / 腾讯，搜索走东方财富 |
-| 门禁 | `flutter analyze` 0 issues（含 8 条 Dart 3.13 新 lint，见 二·四十四）；`flutter test` **490 通过 + 0 skip**（CI 口径 `--exclude-tags preview` 为 483，少的 7 条是 golden harness；相对 476 / 469 多出的 14 条 = 二·五十三 增量日线守门 11 条 + 二·五十一 Brotli 内容编码守门 3 条） |
+| 门禁 | `flutter analyze` 0 issues（含 8 条 Dart 3.13 新 lint，见 二·四十四）；`flutter test` **499 通过 + 0 skip**（CI 口径 `--exclude-tags preview` 为 492，少的 7 条是 golden harness；相对 476 / 469 多出的 23 条 = 二·五十三 增量日线守门 11 条 + 二·五十一 Brotli 内容编码守门 3 条 + 二·五十四 默认玻璃风格守门 2 条 + 二·五十五 UIKit 校准守门 7 条） |
 | 日志 tag | 原生 `app.supermarket`（= 包名，Kotlin 唯一常量 `LogTag.kt`，`MainActivity` / `AdpfSession` 共用）；Dart `debugPrint` 走引擎固定的 `flutter`。两边一起看：`adb logcat -s app.supermarket flutter` |
 | 帧数据 | `tool/measure_frames.sh`（profile 包 + `PERF_LOG` → `FrameTiming`）；`dumpsys gfxinfo` 对 Flutter 自绘恒为 0 帧 |
 | 签名 | 正式密钥：`android/keystore.properties` → `android/keystore/supermarket-release.jks`，**两者都在 `.gitignore` 里，务必另行备份**（丢了就无法以同一身份发版） |
@@ -1391,7 +1391,8 @@ curl -s -H "apiKey: <key>" https://data.infoway.io/package/info
 
 用户诉求「更像 iOS 26/27 的液态玻璃」，GitHub 调研后选了
 [`liquid_glass_widgets`](https://github.com/yohom/liquid_glass_widgets)
-（v1.16.1，MIT，真 shader 管线：折射 + 色差 + 菲涅尔边缘光，三档质量）。
+（接入时为 v1.16.1，MIT，真 shader 管线：折射 + 色差 + 菲涅尔边缘光，三档质量；
+**2026-11-07 晚已升 1.17.0**，见 二·五十四）。
 
 **最小范围落地**（先试点，不满意随时回退）：
 
@@ -3170,10 +3171,10 @@ adb logcat -s app.supermarket flutter
 ## 二·五十一、技术升级候选盘点：三条路线，以及「明确不做」的那一半（2026-11-07）
 
 **起点是个反直觉的结论：工具链层已经打满。** 再列「升到某某新版本」或「再压包体」，
-基本是在重复已证无收益的功课——Flutter 3.47.9 / Dart 3.13.7、AGP 9.5.1 / Gradle 9.6.0 /
-KGP 2.4.21（二·五十二 又升了一档）、R8 Full Mode（默认开）、Baseline Profile（手写 25 条）、自建 ADPF、
+基本是在重复已证无收益的功课——Flutter 3.47.9 / Dart 3.13.7、AGP 9.5.1 / Gradle 9.9.0 /
+KGP 2.4.21（二·五十二、二·五十四 各升一档）、R8 Full Mode（默认开）、Baseline Profile（手写 25 条）、自建 ADPF、
 `material_ui` 1.10、16KB 页 / edge-to-edge / targetSdk 37、8 条 3.13 新 lint、
-单一构建入口、476 条用例，见 二·四十二～二·五十 与 ROADMAP「明确不做」。
+单一构建入口、499 条用例，见 二·四十二～二·五十五 与 ROADMAP「明确不做」。
 
 筛子只有三道：**个人自用单机**（排除发版流水线 / 崩溃上报 / i18n / 埋点）、
 **工具链已顶格**（排除追新框架与包体）、**真机离线**（依赖真机的先挂起）。
@@ -3190,7 +3191,7 @@ KGP 2.4.21（二·五十二 又升了一档）、R8 Full Mode（默认开）、B
   `PollingQuoteFeed.regionBackup` 补位腿（二·四十），K 线仍只有腾讯。复用同一模式 +
   `tool/us_live_probe_test.dart` 网络探针验证即可，不需要真机。
 - **A3 版本一致性 / 升级 SOP**。ROADMAP §1.2 未完成项。版本散在 `pubspec.yaml:4`
-  （`1.0.7+35`）、`ci.yml:34`（3.47.9）、`settings.gradle.kts`（AGP）、
+  （`1.0.8+36`）、`ci.yml:34`（3.47.9）、`settings.gradle.kts`（AGP）、
   `gradle-wrapper.properties`（Gradle）、本页表格、`dependency_pin_test.dart` 六处。
   一个 `tool/check_versions.py` + 守门测试，把「升 Flutter 漏改 CI」变成当场红；
   顺带 `bump_version.sh` 一次改 pubspec + README。
@@ -3505,13 +3506,14 @@ Glance 微件（新功能，ROADMAP 已单列，别混进「升级」）；DNS �
 `tool/brotli_client_probe_test.dart` 可复跑，见上节）。
 
 > **状态：本章是候选盘点，不是已完成清单。** A / B / C 三条路线都还没动手，
-> 路线相关代码零改动。本章之外有四处已落地：二·四十二 的主构造函数试点转正
+> 路线相关代码零改动。本章之外有五处已落地：二·四十二 的主构造函数试点转正
 > （`lib/models/kline.dart`）、本节新增的 `test/r8_config_boundary_test.dart`
 > 4 条配置守门断言（都是防回退，不是路线 C 的验证能力建设）、
 > 二·五十二 的工具链再升一档（AGP 9.5.1，属维护动作，不属于 A/B/C 任一条路线）、
-> 以及 **二·五十三 的增量日线**（候选之外的独立优化，用例数由 476 → 487）。
-> 本节另新增 `test/brotli_boundary_test.dart` 3 条内容编码守门（防回退，
-> 用例数 487 → 490）。本章留了三支可复跑探针：`tool/probe_http3.sh`、
+> **二·五十三 的增量日线**（候选之外的独立优化，用例数由 476 → 487），
+> 以及 **二·五十四 的全量依赖升级**（Gradle 9.9.0 / 玻璃包 1.17.0，用例数
+> 490 → 492）。本节另新增 `test/brotli_boundary_test.dart` 3 条内容编码守门
+> （防回退，用例数 487 → 490）。本章留了三支可复跑探针：`tool/probe_http3.sh`、
 > `tool/probe_brotli.sh`、`tool/brotli_client_probe_test.dart`
 > （**运行时代码零改动**）。
 > ROADMAP 结尾那句仍然准确：你缺的不是新技术，是「下一次系统或引擎变更时
@@ -3534,6 +3536,10 @@ AGP **9.3 起把分析器做成了独立 Gradle 任务**，9.5.1 是当时最后
 | Gradle | 9.4.1 | **9.6.0** | AGP 9.5 的最低要求，腾讯镜像已有 `gradle-9.6.0-all.zip` |
 | KGP | 2.4.0 | **2.4.21** | 2.4.0 的 Gradle 完全支持上限是 9.5.0；2.4.21 支持到 9.7.0，且 2.5 仍是 Beta |
 | JDK | 21 | 21 | 不变 |
+
+> **后续（同日 21:50）**：Gradle 又从 9.6.0 升到 **9.9.0**（2026-11-06 发布的
+> 最新稳定版），AGP / KGP 未动，见 **二·五十四**。下表与本节 A/B 数字是
+> 9.6.0 时代的历史快照，别当成当前包体。
 
 Flutter 3.47.9 的 `DependencyVersionChecker` **只设下限**（AGP ≥ 9.0.1、KGP ≥ 2.3.20），
 没有上限，所以 9.5.1 不会被拦；`flutter analyze --suggestions` 实测仍报
@@ -3704,6 +3710,226 @@ R8 / ADPF / baseline.prof / 四个数据源端点全在包里）。
 看 `走势 …：增量 …` 与全量回退两类日志。
 
 
+## 二·五十四、全量依赖升级：查完只有 2 个真能升（2026-11-07）
+
+**要求**：「升级所有依赖版本到最新版本」。先核实「最新」再动手——这次没有
+`flutter pub upgrade` 一把梭，而是 `flutter pub outdated --show-all --transitive`
+加官方 API 交叉验证（pub.dev `/api/packages/<name>`、Google Maven
+`maven-metadata.xml`、Gradle Plugin Portal、`services.gradle.org/versions/current`、
+Flutter 官方 `releases_linux.json` 的 `current_release.stable`）。
+**口径：最新稳定版**，不含 alpha / Beta / RC。
+
+### 版本对照（当前 → 最新稳定）
+
+| 依赖 | 升级前 | 最新稳定 | 动作 |
+| --- | --- | --- | --- |
+| `liquid_glass_widgets` | 1.16.1 | **1.17.0**（当天发布） | ✅ 升，见下 |
+| Gradle wrapper | 9.6.0 | **9.9.0**（2026-11-06，`current=true`、非 RC/snapshot） | ✅ 升 |
+| `material_ui` | 1.10.0 | 1.10.0 | 已最新 |
+| `path_provider` | 2.1.6 | 2.1.6 | 已最新 |
+| `jni` / `jni_flutter` | 1.1.2 / 1.0.4+1 | 同左 | 已最新 |
+| `flutter_lints` / `clock` | 6.0.0 / 1.1.3 | 同左 | 已最新 |
+| AGP | 9.5.1 | 9.5.1（`9.6.0-alpha03` 是预览） | 已最新 |
+| KGP | 2.4.21 | 2.4.21（`2.5.0-Beta2` 是预览） | 已最新 |
+| Flutter SDK | 3.47.9 | 3.47.9（官方 stable 指针 `c197ca5199`） | 已最新 |
+| compileSdk / targetSdk / JDK | 37 / 37 / 21 | 同左 | 不变 |
+
+`pubspec.lock` 只动了 2 行（1.17.0 的版本号与 sha256），源地址仍是
+`https://pub.dev`，与 HEAD 一致——没有顺手制造镜像漂移。
+
+**两个「latest 更高但 resolvable 钉死」的传递依赖不升**：
+`material_color_utilities 0.13.0 → 0.13.1`、`test_api 0.7.12 → 0.7.15`。
+本机 SDK 源码里写的是**精确版本**（`flutter/packages/flutter/pubspec.yaml:19`
+与 `flutter/packages/flutter_test/pubspec.yaml:21`），不是范围约束，所以
+`pub outdated` 的 resolvable 列带 `*`、正常解析拿不到新版。用
+`dependency_overrides` 能强行顶上去，但收益是 0（两个 patch 版），代价是
+覆盖 SDK 内部契约、并让以后 SDK 正常升级时的解析变化被静默掩盖。**不引**。
+
+### 1.17.0 是 breaking 版，两处都验过
+
+**① 默认玻璃风格改成 `GlassStyle.ios27`**（升级前是 classic，
+回退要 `GlassThemeData.classic()`）。本工程从接入起就显式写
+`GlassThemeData.ios27()`，风格上零影响；新增
+`test/glass_default_style_test.dart` 2 条守门，把「上游默认 = 显式主题」
+钉成可验证事实。第二条同时解释了**为什么保留显式主题**：
+`GlassThemeData.ios27()` 的 variant 把全局 `quality` 钉在 `premium`，
+而不传 theme 时的 `fallback()` 里 `quality` 是 `null`——删掉显式主题会把
+二·四十六 之后那条「质量档钉死 premium」的防线一起丢掉。
+
+**② `ios27Light` 的默认投影加深**：`shadow` 从 `Color(0x04000000)` 变成
+`Color(0x0A000000)`（blurRadius 10 / offset(0,7) 不变）。
+`kGlassSurface` / `kSheetGlassSurface` 都用 `.copyWith(...)` 且没覆盖
+`shadow`，于是 5 张 golden 全红：
+
+| golden | flutter_tester 报的差异 | pngdiff（>2/255） | 最大通道差 |
+| --- | ---: | ---: | ---: |
+| page | 3.99% / 13 140 px | 11.53% | 6 |
+| scroll | 4.44% / 14 616 px | 11.66% | 6 |
+| detail | 3.78% / 12 450 px | 2.32% | 6 |
+| detail-daily | 3.77% / 12 409 px | 2.32% | 6 |
+| watchlist | 3.16% / 10 391 px | 2.30% | 5 |
+
+两种百分比阈值不同，别当两组数据打架：`isolatedDiff` 高亮的范围清一色是
+**5 条卡片的底边与圆角**，最大通道差只有 5~6/255，没有布局、文字或
+色号变化——就是投影变深。按用户拍板「**不用钉住，用新版本就好了**」，
+**不写兼容 shadow**：备份旧基线到 `build/golden-backup-1.16.1/` →
+`--update-goldens` → `tool/pngdiff.py` 分段核验 → 目视巡检（卡片底边干净，
+无白边 / 灰带 / 断裂）。`docs/dep-liquid-glass.md` 的版本履历记了同一条结论，
+`test/dependency_pin_test.dart` 的钉子改 1.17.0、合成漂移样本改 1.18.0。
+
+### 门禁与边界
+
+`flutter analyze` **0 issue**；全量 **492** / CI 口径（`--exclude-tags
+preview`）**485** 全绿；`tool/build_apk.sh` + `verify_apk.py` 全绿。
+wrapper 实测 `Welcome to Gradle 9.9.0!`（Kotlin 2.4.21 / JDK 21），
+AGP 9.5.1 在 9.9.0 下零警告、构建 386.5s（含下载 240MB 发行包）。
+APK `8 317 360 → 8 331 292 B`（**+13 932 B**，1.17.0 包体变大），
+`libapp.so` 4.50 MB、`baseline.prof` 1052 B，R8 / ADPF / 四个数据源端点全在。
+
+**真机首屏目视已补**（2026-11-07 22:13，随 1.0.8+36 装机）：OPPO PLJ110 /
+Android 17 上 `am start -W` 冷启动成功，截图确认 5 张卡片、行情数字、休市状态、
+太极时钟完整渲染，卡片底边投影干净、无白边/灰带/断裂；日志有 `refresh: 投票
+60Hz` 与 `adpf: 会话已建立`，无 FATAL / ANR。**完整动态走查仍待补**：详情弹层
+与 premium 折射/rim 的动态观感要人工操作观察，flutter_tester 只验了降级路径
+的投影像素。预览版一律不升；Flutter SDK 本身已是官方最新 stable，
+**没有动 SDK**——换引擎会连带重验 engine revision / golden / baseline.prof
+签名，不属于「依赖版本」。
+
+
+## 二·五十五、按原生 UIKit 重新校准五类交互控件：上游已做，本项目零曝光（2026-11-07）
+
+**要求**：「按原生 UIKit 重新校准：TabBar、SegmentedControl、Indicator、
+Switch（新增 `thumbShadow`）、Slider 的镜片折射 / 色散 / 高光边缘；Switch/Slider
+只在按下或拖动时才挂 shader 层（省常驻 GPU）」。
+
+**第一件事是定位这五个控件在哪**：它们全是 `liquid_glass_widgets` 包内的组件，
+不是本工程的自绘 widget。1.17.0 `CHANGELOG.md:15` 的 Features 条目就是这条
+要求的英文原文：
+
+> Calibrated `GlassTabBar`, `GlassSegmentedControl`, `AnimatedGlassIndicator`,
+> `GlassSwitch` (adding `thumbShadow`), and `GlassSlider` to match native UIKit
+> platters, resting wells, lifted lens refraction/dispersion, and specular rim
+> shading; `GlassSwitch` and `GlassSlider` lazy-mount their shader layer only
+> while pressed or dragged.
+
+也就是说，这一轮校准**已随二·五十四的 1.17.0 升级进了 `pubspec.lock`**。
+不需要、也不应该把它的参数抄进 `kGlassSurface` 重写一遍——那 15 个参数是
+卡片材质，改的是另一个对象，而且 1.17.0 已经因为一个 shadow 让 5 张 golden
+全红过一次。
+
+### 核查方式（不靠 CHANGELOG 一句话交差）
+
+`python tool/probe_uikit_calibration.py`：从 `.dart_tool/package_config.json`
+解析包路径（不硬编码 pub cache，换镜像源 / 换机器都不假红），对 9 个文件做
+**47 项源码断言**，再扫 `lib/` 打印五控件引用数；任一断言失效 exit 1。
+1.16.1 与 1.17.0 两份包源码逐文件 `diff` 也在本机做过。
+
+### 五个控件分别改了什么
+
+| 控件 | 折射 / 色散 / 高光边缘的校准 | 关键数值与源码 |
+| --- | --- | --- |
+| `GlassTabBar` | 选中态按 iOS 27 `_UILiquidLensView` 建镜片，图标与标签一起放大；`iconSize` / `magnification` 改成 `double?`，由当前 `GlassStyle` 解析 | `27.5 pt` / `1.25`（classic 是 `24.0` / `1.15`）；lens frame `(-4,-4,W+16,H+16)`。`glass_tab_bar.dart:1332-1392` |
+| `GlassSegmentedControl` | 轨道「resting well」底色对齐 `CupertinoColors.tertiarySystemFill`；指示器只在按下 / 拖动时挂 3D paraxial 液态镜片 | 亮 `#1F787880` / 暗 `#3D787880`；fallback 取 `GlassDefaults` 的色散 `0.5`、折射 `1.15`、镜面 `2.0` |
+| `AnimatedGlassIndicator` | **breaking**：省略 `indicatorSettings` 时默认从 `classicIndicator`（球形药丸 `n=1.10`）换成 `ios27Indicator`；静止选中态画 `_UITabSelectionView` 的 `CAColorMatrix`；`blur` 强制归零 | `n=1.17` / `thickness=28` / 色散 `0` / `rimShade=1.0` / `rimShadeEnds=0.56` / `rimLight=1.0` / `paraxial` / 正上方受光 `π/2`。`blur` 必须为 0：药丸是折射透镜，套 `BackdropFilter` 会采样已模糊的合成图，SDF 描边与镜面高光全毁 |
+| `GlassSwitch` | **新增 `thumbShadow: List<BoxShadow>?`**：静止 thumb 投影画在 `GlassEffect` 裁剪之外，随 thumb 抬升成液态透镜而淡出；传 `const <BoxShadow>[]` 即禁用 | 默认 `15% 黑 / blur 8 / offset(0,2)`；thumb 镜片 `ios27Indicator.copyWith(refractiveIndex: 1.38)`；ios26 另钉 `rimShade 1.0 / rimShadeEnds 0.56 / rimLight 1.0`；premium 下 `baseAlphaMultiplier 0.2` / `edgeAlphaMultiplier 0.4` |
+| `GlassSlider` | thumb 镜片与镜面边缘同步校准；**`thumbShadow` 不是这次新增的**（1.6.2 已加，并把默认不透明度 25%→15%） | `refractiveIndex: 1.07`（classic 亮 `1.4` / 暗 `1.3`）；premium 下 `edgeAlphaMultiplier 0`；默认投影与 Switch 完全相同 |
+
+全局缺省在 `constants/glass_defaults.dart`：色散 `0.5`、折射 `1.15`、
+镜面 tint 亮 `0.15` / 暗 `0.10`。**注意两套光源不同源**：`ios27Indicator`
+是 `π/2`（正上方受光），本项目 `kGlassSurface` 与自绘 `GlassRim` 是左上
+`3π/4`（二·三十四 为避开扁卡上下两条白带特意转的）。别把上游指示器的
+受光角度抄到卡片上。
+
+### 懒挂载：省掉的到底是哪一层
+
+闸门在**共享的 `widgets/shared/glass_effect.dart`**，不在 Switch/Slider 各自的类里。
+1.16.1 的 Impeller 分支无条件挂层：
+
+```dart
+return GlassBackdropGroup(
+  enabled: false,
+  child: LiquidGlass.withOwnLayer(settings: widget.settings, ...),
+);
+```
+
+1.17.0 加了静止态短路，并把折射 / 边缘强度按交互强度从 1.0 / 0 线性抬起：
+
+```dart
+final activeIntensity = widget.interactionIntensity.clamp(0.0, 1.0);
+if (activeIntensity <= 0.001) {
+  return widget.child;            // 静止：连 withOwnLayer 都不建
+}
+return GlassBackdropGroup(
+  enabled: false,
+  child: LiquidGlass.withOwnLayer(
+    settings: widget.settings.copyWith(
+      thickness: widget.settings.thickness * activeIntensity,
+      refractiveIndex: 1.0 + (widget.settings.refractiveIndex - 1.0) * activeIntensity,
+      rimShade: widget.settings.rimShade * activeIntensity,
+      rimLight: widget.settings.rimLight * activeIntensity,
+    ), ...
+  ),
+);
+```
+
+`GlassSwitch` / `GlassSlider` 传的是 `interactionIntensity: transition`，
+而 `transition = _thicknessAnimation.value`：静止 0，按下 / 拖动 0→1。
+所以一个满屏开关、滑块的设置页在无人操作时为零 backdrop-filter 层。
+
+**别扩大解释**：`AnimatedGlassIndicator` 也走 `GlassEffect`，但它喂的是
+`interactionIntensity: thickness`（弹簧厚度，静止选中态非 0），药丸**仍常驻**。
+「省常驻 GPU」覆盖的是 Switch / Slider（以及分段控件指示器未被按下时），
+不是所有玻璃。
+
+### 本项目的曝光面：0
+
+| 控件 | 本工程现状 |
+| --- | --- |
+| TabBar | 无。`quote_list_page.dart` 没有底部导航；`RefreshIndicator` 是产品要求删掉的（`header_fade_test.dart` 断言为 0） |
+| SegmentedControl | 只有详情弹层自绘的「分时 / 日K」`_Segment`（`quote_detail_sheet.dart:607-659`）：纯 `AnimatedContainer` + `BoxDecoration`，零玻璃、零 shader |
+| Indicator | 无玻璃指示器。状态角标 / 弹层拖拽条 / K 线十字线都是纯色绘制 |
+| Switch / Slider | 全库零命中；`thumbShadow` 在 `lib/` 零命中 |
+
+探针与 `test/uikit_calibration_boundary_test.dart` 都扫 `lib/`，引用数 **0**。
+由此两条结论：
+
+1. **没有本地重校准的对象**。这轮校准是上游包内行为，随升级自动到位；
+   把它写进 `kGlassSurface` 只会改坏 v21 卡片材质。
+2. **「省常驻 GPU」对本项目的收益是 0**——我们根本没有 Switch/Slider
+   那层可省的常驻 shader。真正常驻 GPU 的是 5 张行情卡片的
+   `GlassContainer.card(useOwnLayer: true, quality: GlassQuality.premium)`
+   加 `GlassBackdropGroup` 共享一次背景读取；那是卡片视觉本身，
+   不能按「按下才挂」处理。别把上游的收益记进我们的性能账。
+
+### 决策、坑与重评触发
+
+**不做本地重校准、不引入这五个控件。** 理由：① 没有 UI 槽位，加 Switch /
+Slider 等于凭空造设置项；② 引入任一 premium 控件要重跑 5 张 golden 加
+真机 Impeller 走查（flutter_tester 只走降级路径，验不了折射 / 色散）；
+③ 真机常态可用内存约 300MB，多一层 ownLayer 是纯支出。
+
+**真要用时有个坑**：包源码明确写了 `GlassSegmentedControl` 不能放进默认
+`glass` 的 `GlassContainer.card`——父层会给孩子设 `avoidsRefraction: true`
+让折射退化，`useOwnLayer: true` 的裁剪还会切掉拖动时的果冻过冲；而本工程
+详情弹层恰恰是 `GlassContainer.card` 背景。将「分时 / 日K」换成分段控件
+必须连承载层一起改，不是替换一个 widget 就完事。
+
+重评触发条件：新增设置页 / 开关 / 滑块，或决定把 `_Segment` 换成玻璃分段控件。
+届时按 `docs/dep-liquid-glass.md` 第四节 SOP 走，`lib/` 零引用守门会**先红**
+（这是设计好的），改断言前先完成 golden + 真机走查，并回来改写本节结论。
+
+### 门禁
+
+新增 `tool/probe_uikit_calibration.py`（9 组 47 项断言，exit 0）与
+`test/uikit_calibration_boundary_test.dart` **7 条**：编译期钉住
+`thumbShadow`、运行时钉住 `ios27Indicator` 的 12 个数值、源码钉住静止态
+短路与 `transition` 驱动、扫 `lib/` 守零曝光、扫描器自证、以及「常驻 GPU
+成本在卡片」的事实。**零 UI 改动 → 5 张 golden 逐字节不变**。
+红态证据：临时在 `lib/` 写一行 `GlassSwitch(` → 零引用用例当场红并点名
+文件与行号，删掉即绿。`flutter analyze` 0 issue；全量 **499** /
+CI 口径 **492** 全绿。
+
+
 ## 三、跑起来（3 步）
 
 ### 1. 不需要 flutter create
@@ -3859,7 +4085,7 @@ static const List<StockConfig> stocks = <StockConfig>[
 ```bash
 flutter pub get
 flutter analyze        # 实测：No issues found!
-flutter test           # 实测：483 通过（--exclude-tags preview；全量 490，含 5 张 golden）
+flutter test           # 实测：492 通过（--exclude-tags preview；全量 499，含 5 张 golden）
 flutter run            # 连真机或模拟器（需要 Android SDK）
 ```
 
@@ -4020,7 +4246,7 @@ WebSocket 已建立，等待认证结果
 ```bash
 ./tool/build_apk.sh          # 构建（产物同时复制为 super market.apk）
 # 产物：build/app/outputs/flutter-apk/app-release.apk
-#       当前实测 7.93 MB（8 318 768 字节，仅 arm64-v8a，R8 + .so 压缩存储）
+#       当前实测 7.95 MB（8 331 292 字节，1.0.8+36，仅 arm64-v8a，R8 + .so 压缩存储）
 ```
 
 > 2026-11-07 合并构建脚本后，用默认口径（**不混淆**）重建过一次：7.91 MB /
@@ -4063,7 +4289,7 @@ WebSocket 已建立，等待认证结果
 | **仅 arm64 + R8 + 剥离符号** | **14.97 MB** | 3.19 MB | 当时采用（此后又叠加 `.so` 压缩，见上） |
 | 仅 arm64 + R8 + **混淆** | 14.91 MB | 3.13 MB | 只再省 0.06 MB，**不采用**（2026-11-07 在当前包体上复测：0.03 MB，见 二·三十九） |
 
-> **以下是 16 MB 时代的体积演进（留证）**：数字对不上现在的 7.93 MB 是正常的，
+> **以下是 16 MB 时代的体积演进（留证）**：数字对不上现在的 7.95 MB 是正常的，
 > 中间做了 `.so` 压缩存储。这一段的价值是看「每个改动各自花了多少字节」，不是当前值。
 >
 > 上表是「只有行情列表」那一版的对照数据，用来隔离每个参数各自的收益。
@@ -4194,7 +4420,7 @@ R8 一旦重命名，release 包**装得上但一启动就崩**（`UnsatisfiedLi
 | 项 | 值 | 证据 |
 | --- | --- | --- |
 | package / namespace | `app.supermarket`（两者一致；2026-11-06 定案） | `build.gradle.kts` |
-| versionName / versionCode | `1.0.7` / `35` | `pubspec.yaml`（`version: 1.0.7+35`；**此表须随每次升版更新**——上次停在 1.0.1+29，正是 E-02 说的漂移） |
+| versionName / versionCode | `1.0.8` / `36` | `pubspec.yaml`（`version: 1.0.8+36`；**此表须随每次升版更新**——上次停在 1.0.1+29，正是 E-02 说的漂移）；2026-11-07 打包后 `aapt dump badging` → `versionCode='36' versionName='1.0.8'` |
 | compileSdk / targetSdk | `37` / `37`（Android 17） | `build.gradle.kts`；`aapt dump badging` 可复核 |
 | minSdk | `24`（Android 7.0） | `aapt dump badging` → `sdkVersion:'24'` |
 | 权限 | `android.permission.INTERNET`（仅此一项） | `AndroidManifest.xml` |
@@ -4227,17 +4453,20 @@ python tool/verify_apk.py
 
 ```
 包体   : build/app/outputs/flutter-apk/app-release.apk
-        7.93 MB（解压后 18.62 MB）
+        7.95 MB（解压后 18.68 MB）
 
 架构   : ✓ ['arm64-v8a']
 
 目标   : ✓ targetSdk 37（期望 37 = Android 17）
-R8     : ✓ classes.dex 954 KB（未开 R8 约 6000 KB）
+R8     : ✓ classes.dex 956 KB（未开 R8 约 6000 KB）
+ADPF   : ✓ 性能提示会话已打进包
+Profile: ✓ baseline.prof 1052 B（仅依赖时为 926 B）
+        ✓ 自写规则经 R8 改写后仍在（FlutterActivity）
 冗余   : ✓ 编译器元数据 0 KB（0 项）
 传输   : ✓ 禁明文配置（清单已挂，cleartext=false）
        : ✓ io.flutter.embedding.engine.FlutterJNI
        : ✓ io.flutter.embedding.android.FlutterActivity
-Dart   : libapp.so 4.31 MB
+Dart   : libapp.so 4.50 MB
 
 数据源 : ✓ 新浪行情域 hq.sinajs.cn
 数据源 : ✓ 新浪 Referer finance.sina.com.cn
@@ -4247,10 +4476,14 @@ Dart   : libapp.so 4.31 MB
 数据源 : ✓ 走势备用端点 web.ifzq.gtimg.cn
 数据源 : ✓ 目录总数端点 getHQNodeStockCount
 数据源 : ✓ 搜索端点 searchapi.eastmoney.com
+数据源 : ✓ 美股补位域 push2.eastmoney.com
+数据源 : ✓ 美股补位批量端点 ulist.np
 数据源 : ✓ iTick 推送链已树摇（api-free.itick.org 不在包里）
-提示   : ! 内置 Token 仍留在包里（cddb0f…17cc）：iTick 代码已被树摇，它不参与运行，属于死数据
-✓ 全部通过：64 位单架构、R8 生效且保留了 JNI 类、新浪主力 + 腾讯备份已打进包、iTick 推送链不在运行时
+
+✓ 全部通过：64 位单架构、targetSdk 37（Android 17）、R8 生效且保留了 JNI 类、ADPF 会话在包里、新浪主力 + 腾讯备份 + 美股补位已打进包、iTick 推送链不在运行时
 ```
+
+↑ 2026-11-07 / **1.0.8+36** 打包实测输出（ADPF 会话、baseline.prof、美股补位腿都已进包）。
 
 它检查四类东西：**架构是否只剩 64 位**、**R8 是否真的生效**、**JNI 关键类是否被保留**、
 **包里装的到底是哪套数据源**（主力源的地址、`Referer`、目录接口在不在，备用源的域在不在，

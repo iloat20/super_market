@@ -3,15 +3,16 @@
 > review-2026-11-05 路线图「长期」项的落地。原则与 `tool/verify_apk.py` 钉
 > targetSdk 37 相同：**谁动了它，必须当场暴露，并留下走查记录。**
 
-## 一、当前状态（2026-11-05 核对）
+## 一、当前状态（2026-11-07 核对）
 
 | 项 | 值 |
 | --- | --- |
-| pubspec 约束 | `^1.16.1`（`pubspec.yaml`） |
-| lock 锁定 | `1.16.1`（`pubspec.lock`，已入库；sha256 `959da060…`） |
-| 上游最新 | **1.16.1**（2026-11-05 与 pub.dev 核对，6 天前发布——当前即在最新版） |
+| pubspec 约束 | `^1.17.0`（`pubspec.yaml`） |
+| lock 锁定 | `1.17.0`（`pubspec.lock`，已入库；sha256 `cf6b3cab…`） |
+| 上游最新 | **1.17.0**（2026-11-07 发布，当天与 pub.dev API 核对——当前即在最新版） |
 | 上游仓库 | https://github.com/sdegenaar/liquid_glass_widgets （MIT） |
-| SDK 约束 | Flutter ≥ 3.41 / Dart ≥ 3.5（本机 3.47.9，满足） |
+| SDK 约束 | Flutter ≥ 3.41 / Dart ≥ 3.5 < 4.0（1.17.0 pubspec；本机 3.47.9，满足） |
+| 默认风格 | `GlassStyle.ios27`（1.17.0 起上游默认，见 `test/glass_default_style_test.dart`） |
 | 自身依赖 | **零**第三方包（纯 Flutter SDK + GLSL shader） |
 
 ## 二、为什么选它（不换的理由）
@@ -34,6 +35,20 @@
 | `lib/widgets/glass.dart` | `LiquidGlassSettings.ios27Light.copyWith(…)` → `kGlassSurface` | 参数：saturation/glassColor/frostOpacity/blur/thickness/refractiveIndex/lightIntensity/fresnelStrength/lightAngle/rimLight/rimShade/rimShadeEnds/edgeAbsorption/bodyShade/glowIntensity/chromaticAberration——v6 曾把白光全清零只留光学形变，v10 请回斜向 rimLight，v20（2026-11-07）再补白纱/霜/模糊加一档，但 **v21（同日用户拍板「玻璃要是透明玻璃」）整组撤销**：`glassColor` 全透明、`frost`/`frostOpacity`/`blur` 全 0、`bodyMode: GlassBodyMode.clear`（Apple Glass.clear），卡身原样透出背景，玻璃感全部由边缘光学承担并把光学再推一档；v22 曾把 `rimShade` / `rimShadeEnds` / `edgeAbsorption` / `shadow` / `shadowElevation` 全部清零去灰边，但纯色背景下折射本就不可见，清掉暗部后只剩加色亮线 = 白边、丢失玻璃感，**已按用户要求整体回退到 v21**；当前生效值即 v21（调参史见该文件注释；`lightAngle` 自 2026-11-06 起为左上 3π/4，与自绘面板的 `kGlassLightFrom` 同一方向） |
 | `lib/widgets/quote_tile.dart` | `GlassContainer.card(useOwnLayer, quality: GlassQuality.premium, shape: LiquidRoundedSuperellipse, settings: kGlassSurface, surfaceStyle: glass)` | premium 档是「边缘像玻璃」的唯一路径；standard 2D 轻量着色器不画 frost/rim。2026-11-06 起从普通 `GlassContainer` 换成非废弃的 `.card` 预设，光学参数逐项保留 |
 | `lib/widgets/watchlist_sheet.dart` | `GlassContainer(useOwnLayer, quality: GlassQuality.premium, shape: LiquidRoundedRectangle, settings: kSheetGlassSurface)`（玻璃作背景层，内容平级） | 2026-11-06 起订阅弹层也走包的着色器玻璃（真模糊/rim/色散）；升级时确认 `LiquidRoundedRectangle` 仍在 |
+
+> **2026-11-07 补充 · 五类交互控件不在本表内**
+>
+> 1.17.0 按原生 UIKit 重新校准的 `GlassTabBar`、`GlassSegmentedControl`、
+> `AnimatedGlassIndicator`、`GlassSwitch`（新增 `thumbShadow`）、`GlassSlider`
+> **全库零引用**，因此不列进上表的回归清单。唯一近似控件是详情弹层自绘的
+> 「分时 / 日K」`_Segment`（纯 `AnimatedContainer`，零 shader）。
+> 校准参数、懒挂载闸门、零曝光结论与重评触发条件见 README 二·五十五，
+> 可复跑核查见 `tool/probe_uikit_calibration.py`。
+> **将来引入任一个**：先按第四节 SOP，注意 `GlassSegmentedControl` 不能放进
+> 默认 `glass` 的 `GlassContainer.card`（父层 `avoidsRefraction: true` 会让
+> 折射退化、`useOwnLayer` 会裁掉果冻过冲），本工程详情弹层正是这种承载层；
+> 同时 `test/uikit_calibration_boundary_test.dart` 的零引用断言会先红，
+> 改它之前要完成 5 张 golden + 真机 Impeller 走查。
 
 > **2026-11-06 补充 · 自适应开关为什么是「开着但钉死」**
 >
@@ -76,7 +91,7 @@
 > `test/glass_card_api_test.dart` 三条钉子守住：禁止出现 `GlassCard(`、
 > 卡片预设的光学参数不得丢、`GlassPanel` 必须仍是本地自绘类。
 
-## 四、升级 SOP（2.0.0 或任何 1.16.x+）
+## 四、升级 SOP（2.0.0 或任何 1.17.x+）
 
 > ⚠️ **已知 breaking 预告**：上游 README 明示 2.0.0 起默认材质从 `glass`
 > 变为 `solid`。升 2.0 必须逐调用点显式声明材质/quality（上面第三节的每个
@@ -105,8 +120,8 @@
 
 | 选项 | 结论 |
 | --- | --- |
-| 保持 `^1.16.1` + lock 入库 + 守门测试钉 lock（**选定**） | 有意升级改一处常量即可；`pub upgrade` 的任何漂移当场被测试拦下 |
-| 精确约束 `1.16.1` | 更硬，但升级要改两处（pubspec + 常量），且单包应用没有下游，收益为零 |
+| 保持 `^1.17.0` + lock 入库 + 守门测试钉 lock（**选定**） | 有意升级改一处常量即可；`pub upgrade` 的任何漂移当场被测试拦下 |
+| 精确约束 `1.17.0` | 更硬，但升级要改两处（pubspec + 常量），且单包应用没有下游，收益为零 |
 | 放任（无钉子） | `pub upgrade` 悄悄升版 → 玻璃光学变化只有真机能发现 → 正是本策略要堵的洞 |
 
 ## 六、版本履历
@@ -117,3 +132,5 @@
 | 1.16.1 | 2026-11-06 | 尝试 `GlassModalSheet.show(morphFromRect:)` 做详情液态形变，真机三处不达标（形变无感 / detent 定高压住页脚 / 按住拉伸变大），**当日回退**。沉淀：包的弹层是页面式模型；`detents:{medium}`+`gradual`+`fillThreshold 1.0` 可关掉实心化；`ScrollControllerProvider` 必须接管内容滚动。见 README 二·三十五 |
 | 1.16.1 | 2026-11-06 | 全局初始化补 `adaptiveQuality: true`（按清单），并用 `kGlassAdaptiveConfig` 把质量档钉死在 premium，避免静默降级；详情底部弹层加滚动感应的磨砂玻璃带（自绘，未新增依赖、未新增页面）。验收：`flutter analyze` 0 issue、404 逻辑用例全绿、7 个 golden 全绿（静止态像素零变化）。**真机 A/B 未做**：本轮 `adb devices` 无设备接入，见 README 待办 |
 | 1.16.1 | 2026-11-06 | 第二步「卡片实现」口径复核：`GlassCard` 才是 1.16.1 已废弃（2.0.0 移除）的组件，包内无 `GlassPanel`（本工程的是自绘类，不迁移）。`QuoteTile` 改用非废弃的 `GlassContainer.card` 并显式钉住 `surfaceStyle: glass`，premium / kGlassSurface / 分层结构全保留。analyze 0 issue、407 逻辑用例、7 golden 全绿，视觉零变化；新增 `test/glass_card_api_test.dart` 防误迁移 |
+| **1.17.0** | 2026-11-07 | 全量依赖盘点后的唯一 pub 升级。上游 breaking：**默认风格改成 `GlassStyle.ios27`**（本工程早已显式 `GlassThemeData.ios27()`，风格零影响）；新增 `test/glass_default_style_test.dart` 2 条守门钉住「上游默认 = 显式主题」，并说明显式主题额外把全局 quality 钉在 premium、fallback 的 quality 为 null，故**不删**显式主题。`LiquidGlassSettings.ios27Light.shadow` 由 `0x04000000` 加深为 `0x0A000000`，5 张 golden 各差 2.30~11.66% 像素、最大通道差仅 5~6/255，差异全部落在卡片底部投影；按用户拍板「不用钉住，用新版本就好了」**不做兼容钉住**，备份旧基线 → `--update-goldens` → pngdiff 分段核验 + 目视巡检通过。`test/dependency_pin_test.dart` 钉子改 1.17.0、合成漂移样本改 1.18.0。**真机首屏目视已补**：同日 22:13 随 1.0.8+36 装机（OPPO PLJ110 / Android 17），冷启动正常、5 张卡片与行情数字完整渲染、卡片底边投影干净无白边灰带，SOP 第 4 步的「首页卡片」一项完成；**详情弹层与 premium 折射/rim 动态观感仍待人工走查**（flutter_tester 只验了降级路径的投影像素），该项保持未完成 |
+| **1.17.0** | 2026-11-07 | 补核上游「按原生 UIKit 重新校准」：`GlassTabBar` / `GlassSegmentedControl` / `AnimatedGlassIndicator` / `GlassSwitch`（新增 `thumbShadow`，默认 15% 黑 blur 8）/ `GlassSlider` 五类交互控件的镜片折射、色散、镜面高光边缘，以及 `GlassEffect` 静止态 `interactionIntensity <= 0.001 → return child` 的懒挂载闸门（1.16.1 无条件挂 `LiquidGlass.withOwnLayer`）。**全部是包内实现**，本工程 `lib/` 引用数 0，故无本地重校准对象、GPU 收益也是 0（常驻成本在 5 张 `GlassContainer.card(premium)`）。新增 `tool/probe_uikit_calibration.py`（47 项源码断言）+ `test/uikit_calibration_boundary_test.dart` 7 条守门（含零引用，制造过红态证据），README 二·五十五；零 UI 改动，5 张 golden 不变。**升级 SOP 补充**：将来引入任一 premium 交互控件，须连同承载层一起评估（详情弹层是 `GlassContainer.card`，不能放 `GlassSegmentedControl`），改零引用断言前先完成 golden + 真机 Impeller 走查 |

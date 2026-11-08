@@ -94,8 +94,12 @@ Future<void> main() async {
 
   runApp(
     LiquidGlassWidgets.wrap(
-      // 对标 iOS 27 的 glassEffect(.regular)：frost 14 + paraxial 透镜 +
-      // 顶部受光 + rimShade/rimLight，premium 档
+      // 1.17.0 起上游默认风格就是 GlassStyle.ios27（对标 iOS 27 的
+      // glassEffect(.regular)：frost 14 + paraxial 透镜 + 顶部受光 +
+      // rimShade/rimLight）。这里仍显式写 ios27()：它除了钉风格，还把
+      // 全局 quality 钉在 premium；不传 theme 时走 fallback，variant 的
+      // quality 为 null，各组件按自己的默认取档（见
+      // test/glass_default_style_test.dart 的两条守门）。
       theme: const GlassThemeData.ios27(),
       // MaterialApp 必须显式传：否则暗色系统 + 亮色 App 时阴影/描边会消失
       brightnessResolver: Theme.maybeBrightnessOf,

@@ -1,7 +1,7 @@
 name: super_market
 description: "A 股实时行情（个人自用，新浪/腾讯公开源轮询，仅前台盯盘）"
 publish_to: 'none'
-version: 1.0.7+35
+version: 1.0.8+36
 
 environment:
   # 收紧到实际用到的最低 Dart。原来写 `>=3.4.0`（对应 Flutter 3.22），
@@ -11,7 +11,7 @@ environment:
   sdk: '^3.13.0'
 
 dependencies:
-  liquid_glass_widgets: ^1.16.1
+  liquid_glass_widgets: ^1.17.0
   flutter:
     sdk: flutter
   # 应用私有目录：用来缓存订阅列表（<1KB）和股票目录（约 195KB）
